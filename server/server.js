@@ -79,6 +79,12 @@ app.get("/privacy", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "privacy.html"));
 });
 
+// 5-3단계: 서비스 이용약관 페이지. /privacy와 완전히 동일한 패턴
+// (public/terms.html 정적 페이지 + 직접 서빙)입니다.
+app.get("/terms", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "terms.html"));
+});
+
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,

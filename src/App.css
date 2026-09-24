@@ -2459,9 +2459,27 @@ svg {
   margin-top: 100px;
   padding-top: 28px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   border-top: 1px solid #1c1c1c;
+}
+
+.footer-attribution {
+  width: 100%;
+  margin-top: 16px;
+  color: #666;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.footer-attribution a {
+  color: #888;
+  text-decoration: underline;
+}
+
+.footer-attribution a:hover {
+  color: #ccc;
 }
 
 .footer .logo-mark {

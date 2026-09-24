@@ -1098,6 +1098,16 @@ function HomePage({ trends, onSelectTrend, onExplore, isPro }) {
       <footer className="footer">
         <Logo />
         <span>트렌드는 지금부터.</span>
+        <p className="footer-attribution">
+          이 서비스는 YouTube Data API, Google News, NAVER 검색어트렌드 데이터를 활용합니다.{" "}
+          <a href="https://youtube.com" target="_blank" rel="noreferrer">
+            YouTube 바로가기
+          </a>
+          {" | "}
+          <a href="/privacy">개인정보처리방침</a>
+          {" | "}
+          <a href="/terms">이용약관</a>
+        </p>
       </footer>
     </div>
   );

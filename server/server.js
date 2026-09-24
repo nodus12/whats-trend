@@ -16,6 +16,7 @@ import { getOrCreateNewsExplanation } from "./newsTrendExplanation.js";
 import { getNaverTrendGrowth } from "./naverTrendGrowth.js";
 import { getOrCreateNaverExplanation } from "./naverTrendExplanation.js";
 import { getCompositeTrendScore } from "./compositeTrendScore.js";
+import { getSupabaseClient } from "./supabase.js";
 import {
   listTrackedKeywords,
   addTrackedKeyword,
@@ -773,6 +774,75 @@ app.delete("/api/keywords/:id", async (req, res) => {
       message: "키워드를 삭제하지 못했습니다.",
     });
   }
+});
+
+// Phase B: PRO 활성화(mock)를 클라이언트가 user_profiles.tier를 직접
+// update하는 방식에서 서버 경유로 바꿉니다. Supabase SQL Editor에서
+// user_profiles의 UPDATE 정책을 제거했으므로(수동 적용, 이 저장소에는
+// 마이그레이션 파일 없음), 이제 service_role 키를 쓰는
+// getSupabaseClient()만 tier를 바꿀 수 있습니다. 아직 실제 결제 검증은
+// 없습니다 - "로그인만 하면 개발용으로 PRO 체험 가능"이라는 기존 취지는
+// 그대로 유지하고, 경로만 서버 경유로 바뀝니다.
+async function requireSupabaseUser(req, res) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  if (!token) {
+    res.status(401).json({ success: false, message: "로그인이 필요합니다." });
+    return null;
+  }
+
+  const client = getSupabaseClient();
+  if (!client) {
+    res.status(503).json({ success: false, message: "서버 설정 오류입니다." });
+    return null;
+  }
+
+  // 요청 본문/쿼리의 user id는 신뢰하지 않습니다 - 이 JWT 검증으로 얻은
+  // id만 사용하므로, 타인의 id를 지정해서 호출하는 경로 자체가 없습니다.
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data?.user) {
+    res.status(401).json({ success: false, message: "로그인이 필요합니다." });
+    return null;
+  }
+
+  return { client, userId: data.user.id };
+}
+
+app.post("/api/pro/activate-mock", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
+  const { error } = await auth.client
+    .from("user_profiles")
+    .update({ tier: "pro" })
+    .eq("id", auth.userId);
+
+  if (error) {
+    console.error("PRO activate-mock 요청 실패:", error.message);
+    res.status(502).json({ success: false, message: "PRO 활성화에 실패했어요." });
+    return;
+  }
+
+  res.json({ success: true, tier: "pro" });
+});
+
+app.post("/api/pro/deactivate-mock", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
+  const { error } = await auth.client
+    .from("user_profiles")
+    .update({ tier: "free" })
+    .eq("id", auth.userId);
+
+  if (error) {
+    console.error("PRO deactivate-mock 요청 실패:", error.message);
+    res.status(502).json({ success: false, message: "PRO 해제에 실패했어요." });
+    return;
+  }
+
+  res.json({ success: true, tier: "free" });
 });
 
 // 4-1단계: spin-down 배포 환경(무료 티어 등, idle 시 프로세스가 내려갔다

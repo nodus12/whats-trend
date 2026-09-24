@@ -3419,10 +3419,12 @@ function App() {
   const isPro = profile?.tier === "pro";
 
   // ProPage의 handleActivate()가 confirm() 이후 호출하는 콜백입니다.
-  // mock 활성화(실제 결제 없음) 자체는 그대로 유지하되, setIsPro(true)
-  // 대신 user_profiles.tier를 실제로 'pro'로 update합니다 - 새로고침해도
-  // (로그아웃하지 않는 한) 유지되는 게 기존 localStorage 방식과의 핵심
-  // 차이입니다.
+  // mock 활성화(실제 결제 없음) 자체는 그대로 유지하되, Phase B부터는
+  // 브라우저(anon key)가 user_profiles.tier를 직접 update하지 않고
+  // 서버(POST /api/pro/activate-mock, service_role 키)를 거칩니다 -
+  // user_profiles의 UPDATE RLS 정책 자체를 없앴기 때문에 브라우저에서
+  // 직접 시도해도 이제는 거부됩니다. 새로고침해도(로그아웃하지 않는 한)
+  // 유지되는 것은 기존과 동일합니다.
   const handleActivatePro = async () => {
     if (!session?.user?.id) {
       alert("PRO 활성화는 로그인 후 이용할 수 있어요.");
@@ -3430,13 +3432,14 @@ function App() {
       return;
     }
 
-    const { error } = await supabase
-      .from("user_profiles")
-      .update({ tier: "pro" })
-      .eq("id", session.user.id);
+    const response = await fetch("/api/pro/activate-mock", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const data = await response.json().catch(() => null);
 
-    if (error) {
-      console.error("[왓츠트렌드] PRO 활성화 실패:", error.message);
+    if (!response.ok || !data?.success) {
+      console.error("[왓츠트렌드] PRO 활성화 실패:", data?.message);
       alert("PRO 활성화에 실패했어요. 잠시 후 다시 시도해주세요.");
       return;
     }

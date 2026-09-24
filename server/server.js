@@ -65,9 +65,19 @@ try {
 
 const app = express();
 const port = 5000;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.use(cors());
 app.use(express.json());
+
+// 5-2단계: YouTube API 감사 신청에 필수 항목으로 요구되는 개인정보처리방침
+// 페이지. public/privacy.html(정적 페이지, push-test.html과 동일한 관례)에
+// 내용을 두고, 이 라우트로 "/privacy"라는 깔끔한 경로에서 항상 접근 가능하게
+// 합니다 - 빌드된 dist/가 있든 없든(로컬 개발 중에도) 동일하게 동작하도록
+// public/ 원본 파일을 직접 서빙합니다(아래 dist/ 정적 서빙 블록과는 독립적).
+app.get("/privacy", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "privacy.html"));
+});
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -806,8 +816,9 @@ app.post("/api/scheduler/trigger", (req, res) => {
 // 반드시 위의 모든 /api/* 라우트 등록 "이후"에 위치해야, 아래 catch-all이
 // API 라우트를 가로채지 않습니다. Express 5는 문자열 와일드카드("*")
 // 대신 이름 붙은 와일드카드를 요구하므로, 여기서는 RegExp를 직접 써서
-// "/api/로 시작하지 않는 모든 GET 요청"만 index.html로 넘깁니다.
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// "/api/로 시작하지 않는 모든 GET 요청"만 index.html로 넘깁니다. /privacy는
+// 위에서 이미 먼저 등록되어 있어 이 catch-all보다 우선 처리됩니다.
+// __dirname은 파일 상단에서 이미 선언했습니다(/privacy 라우트와 공유).
 const distPath = path.join(__dirname, "..", "dist");
 const distIndexPath = path.join(distPath, "index.html");
 

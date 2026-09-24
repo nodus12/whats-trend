@@ -46,3 +46,13 @@ services:
         value: "false"
       - key: SCHEDULER_SECRET
         sync: false
+      # Phase A: Vite는 빌드 시점(buildCommand)에 VITE_ 접두사 변수를
+      # 번들에 값으로 박아 넣습니다 - 런타임(startCommand)이 아니라 빌드
+      # 시점에 존재해야 하므로, 값을 채운 뒤에는 반드시 재배포(재빌드)해야
+      # 반영됩니다. anon/public 키라 SUPABASE_SERVICE_ROLE_KEY와 달리
+      # 브라우저에 노출돼도 안전하지만, 실수로 service_role 키를 여기
+      # 넣지 않도록 주의하세요.
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

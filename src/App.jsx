@@ -49,6 +49,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
+import { supabase } from "./supabaseClient.js";
 
 const categories = [
   "전체",
@@ -1617,14 +1618,20 @@ function MyPage({ savedTrends, onSelectTrend, onSave, isPro, onOpenPro }) {
   );
 }
 
-function ProfilePage({ onOpenPro, onOpenNotifications, isPro }) {
+function ProfilePage({ onOpenPro, onOpenNotifications, isPro, session }) {
+  // Phase A: 하드코딩된 이름/아바타 대신 실제 로그인 사용자 정보를
+  // 씁니다. 닉네임 필드가 없어서 이메일 앞부분(@ 앞)으로 대체합니다.
+  const email = session?.user?.email ?? null;
+  const nickname = email ? email.split("@")[0] : "게스트";
+  const avatarLetter = email ? email[0].toUpperCase() : "W";
+
   return (
     <div className="page profile-page">
       <div className="profile-header">
-        <div className="profile-avatar">W</div>
+        <div className="profile-avatar">{avatarLetter}</div>
 
         <div>
-          <h1>박재영</h1>
+          <h1>{nickname}</h1>
           <p>왓츠트렌드와 함께 먼저 발견하세요.</p>
         </div>
       </div>
@@ -3219,6 +3226,128 @@ function KeywordDashboardPage() {
   );
 }
 
+// ============================================================
+// Phase A: 로그인/회원가입 모달
+// ============================================================
+// 기존 페이지 레이아웃은 건드리지 않고, 상단바 profile-button 클릭 시
+// 뜨는 오버레이 모달 하나만 새로 추가합니다. Supabase Auth의
+// signInWithPassword/signUp을 그대로 호출합니다(자체 인증 로직 없음).
+
+function AuthModal({ onClose }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      if (mode === "login") {
+        const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        if (authError) throw authError;
+        onClose();
+      } else {
+        const { error: authError } = await supabase.auth.signUp({ email, password });
+        if (authError) throw authError;
+        setMessage("가입 확인 이메일을 보냈어요. 메일함을 확인해주세요.");
+      }
+    } catch (err) {
+      setError(err.message || "요청을 처리하지 못했어요.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Phase A-1: signInWithOAuth()는 브라우저를 구글/카카오 로그인 페이지로
+  // 실제로 리디렉션시킵니다(팝업이 아님) - 성공하면 provider의 페이지로
+  // 이동해버리므로 이 함수 자체는 이후 로직(onClose 등)을 실행할 기회가
+  // 없습니다. 로그인 완료 후 앱으로 돌아왔을 때의 세션 반영은 App()에
+  // 이미 있는 onAuthStateChange 리스너 하나로 충분합니다(이메일 로그인과
+  // 동일한 경로 - 별도 분기/리스너를 추가하지 않았습니다).
+  const handleOAuthLogin = async (provider) => {
+    setError("");
+    const { error: authError } = await supabase.auth.signInWithOAuth({ provider });
+    if (authError) {
+      setError(authError.message || "소셜 로그인을 시작하지 못했어요.");
+    }
+  };
+
+  return (
+    <div className="auth-modal-overlay" onClick={onClose}>
+      <div className="auth-modal" onClick={(event) => event.stopPropagation()}>
+        <button className="auth-modal-close" onClick={onClose} aria-label="닫기">
+          ×
+        </button>
+
+        <h2>{mode === "login" ? "로그인" : "회원가입"}</h2>
+
+        <form onSubmit={handleSubmit}>
+          <input
+            type="email"
+            placeholder="이메일"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+          <input
+            type="password"
+            placeholder="비밀번호 (6자 이상)"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            minLength={6}
+          />
+
+          {error && <p className="auth-modal-error">{error}</p>}
+          {message && <p className="auth-modal-message">{message}</p>}
+
+          <button type="submit" disabled={loading}>
+            {loading ? "처리 중..." : mode === "login" ? "로그인" : "회원가입"}
+          </button>
+        </form>
+
+        <div className="auth-modal-divider">
+          <span>또는</span>
+        </div>
+
+        <div className="auth-modal-oauth">
+          <button
+            type="button"
+            className="auth-oauth-button auth-oauth-google"
+            onClick={() => handleOAuthLogin("google")}
+          >
+            Google로 계속하기
+          </button>
+          <button
+            type="button"
+            className="auth-oauth-button auth-oauth-kakao"
+            onClick={() => handleOAuthLogin("kakao")}
+          >
+            카카오로 계속하기
+          </button>
+        </div>
+
+        <button
+          className="auth-modal-switch"
+          onClick={() => {
+            setMode(mode === "login" ? "signup" : "login");
+            setError("");
+            setMessage("");
+          }}
+        >
+          {mode === "login" ? "계정이 없으신가요? 회원가입" : "이미 계정이 있으신가요? 로그인"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // Push Notification 초기화
   useEffect(() => {
@@ -3231,13 +3360,97 @@ function App() {
     });
   }, []);
 
-  const [isPro, setIsPro] = useState(() => {
-    return localStorage.getItem("whats-trend-pro") === "true";
-  });
+  // Phase A: isPro는 더 이상 localStorage가 아니라 로그인 세션 +
+  // user_profiles.tier에서 파생됩니다. 로그인하지 않았으면 profile이
+  // null이라 isPro는 항상 false입니다(기존 무료 사용자 경험 그대로) -
+  // 기존 12곳의 isPro 조건문 자체는 전혀 건드리지 않았습니다(변수명/동작
+  // 방식 유지, 값을 어디서 가져오는지만 교체).
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem("whats-trend-pro", String(isPro));
-  }, [isPro]);
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+    });
+
+    // Phase A-1: 이 리스너는 로그인 수단(이메일/구글/카카오)을 구분하지
+    // 않습니다 - Supabase Auth는 어떤 방식으로 로그인했든 동일한 session/
+    // user 객체를 콜백에 넘겨주므로, OAuth 리디렉션이 돌아왔을 때도 이
+    // 하나의 리스너가 그대로 처리합니다(별도 리스너 추가 불필요 - 실제로
+    // 중복 등록 없이 이 useEffect가 컴포넌트 마운트 시 1회만 구독합니다).
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!session?.user?.id) {
+      setProfile(null);
+      return;
+    }
+
+    supabase
+      .from("user_profiles")
+      .select("tier")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("[왓츠트렌드] 프로필 조회 실패:", error.message);
+          setProfile(null);
+          return;
+        }
+        setProfile(data);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
+
+  const isPro = profile?.tier === "pro";
+
+  // ProPage의 handleActivate()가 confirm() 이후 호출하는 콜백입니다.
+  // mock 활성화(실제 결제 없음) 자체는 그대로 유지하되, setIsPro(true)
+  // 대신 user_profiles.tier를 실제로 'pro'로 update합니다 - 새로고침해도
+  // (로그아웃하지 않는 한) 유지되는 게 기존 localStorage 방식과의 핵심
+  // 차이입니다.
+  const handleActivatePro = async () => {
+    if (!session?.user?.id) {
+      alert("PRO 활성화는 로그인 후 이용할 수 있어요.");
+      setShowAuthModal(true);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("user_profiles")
+      .update({ tier: "pro" })
+      .eq("id", session.user.id);
+
+    if (error) {
+      console.error("[왓츠트렌드] PRO 활성화 실패:", error.message);
+      alert("PRO 활성화에 실패했어요. 잠시 후 다시 시도해주세요.");
+      return;
+    }
+
+    setProfile((prev) => ({ ...prev, tier: "pro" }));
+    alert("🎉 PRO가 활성화되었습니다!");
+    setShowPro(false);
+  };
+
+  const handleLogout = async () => {
+    const confirmed = window.confirm("로그아웃 하시겠어요?");
+    if (!confirmed) return;
+    await supabase.auth.signOut();
+  };
 
   const [activeTab, setActiveTab] = useState("home");
   const [selectedTrend, setSelectedTrend] = useState(null);
@@ -3442,9 +3655,20 @@ function App() {
               )}
             </button>
 
-            <button className="profile-button">
-              <span className="profile-avatar">J</span>
-              <span className="profile-name">MY</span>
+            <button
+              className="profile-button"
+              onClick={() => {
+                if (session) {
+                  handleLogout();
+                } else {
+                  setShowAuthModal(true);
+                }
+              }}
+            >
+              <span className="profile-avatar">
+                {session?.user?.email ? session.user.email[0].toUpperCase() : "J"}
+              </span>
+              <span className="profile-name">{session ? "로그아웃" : "MY"}</span>
             </button>
           </div>
         </header>
@@ -3464,11 +3688,7 @@ function App() {
           <ProPage
             onClose={() => setShowPro(false)}
             isPro={isPro}
-            onActivatePro={() => {
-              setIsPro(true);
-              alert("🎉 PRO가 활성화되었습니다!");
-              setShowPro(false);
-            }}
+            onActivatePro={handleActivatePro}
           />
         ) : selectedTrend ? (
           <DetailPage
@@ -3516,6 +3736,7 @@ function App() {
             onOpenPro={() => setShowPro(true)}
             onOpenNotifications={() => setShowNotifications(true)}
             isPro={isPro}
+            session={session}
           />
         ) : (
           <div className="content placeholder-page">
@@ -3543,6 +3764,7 @@ function App() {
         ))}
       </nav>
 
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
     </div>
   );
 }

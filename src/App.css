@@ -6690,3 +6690,144 @@ svg {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================
+   Phase A: AUTH MODAL
+========================= */
+
+.auth-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.auth-modal {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 32px 24px 24px;
+}
+
+.auth-modal h2 {
+  font-size: 20px;
+  margin-bottom: 20px;
+}
+
+.auth-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ccc;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.auth-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-modal input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0d0d0d;
+  color: #fff;
+  font-size: 14px;
+}
+
+.auth-modal button[type="submit"] {
+  margin-top: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: none;
+  background: #fff;
+  color: #080808;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-modal button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-modal-error {
+  color: #ff6b6b;
+  font-size: 12px;
+}
+
+.auth-modal-message {
+  color: #5cffb0;
+  font-size: 12px;
+}
+
+.auth-modal-switch {
+  margin-top: 16px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Phase A-1: 소셜 로그인(OAuth) */
+
+.auth-modal-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  color: #666;
+  font-size: 11px;
+}
+
+.auth-modal-divider::before,
+.auth-modal-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.auth-modal-oauth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-oauth-button {
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-oauth-google {
+  background: #fff;
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.auth-oauth-kakao {
+  background: #fee500;
+  color: #1a1a1a;
+  border: none;
+}

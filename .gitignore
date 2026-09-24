@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# SQLite 데이터베이스 및 백업 등 로컬 데이터 전체 (실제 사용자 Push
+# Subscription/설정 포함, 커밋 금지)
+server/data/
+
+# 개발 중 임시로 만든 1회성 검증 스크립트(예: verify_18_4.mjs)
+verify_*.mjs
+
+# 정체불명의 1회성 스크립트
+fix_test.py
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

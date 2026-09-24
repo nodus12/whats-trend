@@ -1,0 +1,319 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>왓츠트렌드 Push 테스트</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    button {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      margin: 10px 0;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    pre {
+      background: #f5f5f5;
+      padding: 15px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔔 왓츠트렌드 Push 테스트</h1>
+
+  <div id="swStatus" style="background:#eef; border:1px solid #99c; padding:10px; margin-bottom:15px; white-space:pre-wrap;">Service Worker 상태 확인 중...</div>
+
+  <button onclick="checkServiceWorker()">1. Service Worker 확인</button>
+  <button onclick="requestPermission()">2. 알림 권한 확인</button>
+  <button onclick="testNotification()">3. 테스트 알림 보내기</button>
+  <button onclick="diagnose()">4. 전체 진단</button>
+  <button onclick="checkPushServerStatus()">5. 서버 Push 상태 확인</button>
+
+  <pre id="result">준비됨</pre>
+
+  <script>
+    const result = document.getElementById('result');
+    const swStatusEl = document.getElementById('swStatus');
+
+    function log(message) {
+      result.textContent = message;
+      console.log(message);
+    }
+
+    // Promise가 지정 시간 안에 끝나지 않으면 타임아웃 에러로 처리 (serviceWorker.ready 무한 대기 방지)
+    function withTimeout(promise, ms, timeoutMessage) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(timeoutMessage || '시간 초과 (' + ms + 'ms)')), ms)
+        ),
+      ]);
+    }
+
+    async function getReadyRegistration(timeoutMs) {
+      return withTimeout(
+        navigator.serviceWorker.ready,
+        timeoutMs || 3000,
+        'Service Worker가 등록되어 있지 않거나 활성화되지 않았습니다. (ready 대기 시간 초과)'
+      );
+    }
+
+    async function refreshSwStatusUI() {
+      if (!('serviceWorker' in navigator)) {
+        swStatusEl.textContent = '❌ 이 브라우저는 Service Worker를 지원하지 않습니다.';
+        return;
+      }
+
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+
+        if (registrations.length === 0) {
+          swStatusEl.textContent = '⚠️ 등록된 Service Worker가 없습니다.';
+          return;
+        }
+
+        const reg = registrations[0];
+        swStatusEl.textContent =
+          '✅ Service Worker 등록됨\n' +
+          '등록 개수: ' + registrations.length + '\n' +
+          'scope: ' + reg.scope + '\n' +
+          'active: ' + (reg.active ? reg.active.state : '없음');
+      } catch (error) {
+        swStatusEl.textContent = '❌ Service Worker 상태 확인 실패: ' + error.message;
+      }
+    }
+
+    async function autoRegisterServiceWorker() {
+      if (!('serviceWorker' in navigator)) {
+        swStatusEl.textContent = '❌ 이 브라우저는 Service Worker를 지원하지 않습니다.';
+        return;
+      }
+
+      try {
+        swStatusEl.textContent = 'Service Worker 등록 중...';
+        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        await refreshSwStatusUI();
+      } catch (error) {
+        swStatusEl.textContent = '❌ Service Worker 등록 실패: ' + error.message;
+      }
+    }
+
+    window.addEventListener('load', autoRegisterServiceWorker);
+
+    async function checkServiceWorker() {
+      try {
+        log('Service Worker 확인 중...');
+
+        if (!('serviceWorker' in navigator)) {
+          log('❌ 이 브라우저는 Service Worker를 지원하지 않습니다.');
+          return;
+        }
+
+        const registrations = await navigator.serviceWorker.getRegistrations();
+
+        let text = 'Service Worker 등록 개수: ' + registrations.length + '\\n\\n';
+
+        registrations.forEach((registration, index) => {
+          text +=
+            '등록 #' + (index + 1) + '\\n' +
+            'scope: ' + registration.scope + '\\n' +
+            'active: ' + (registration.active ? registration.active.state : '없음') + '\\n' +
+            'waiting: ' + (registration.waiting ? registration.waiting.state : '없음') + '\\n' +
+            'installing: ' + (registration.installing ? registration.installing.state : '없음') + '\\n\\n';
+        });
+
+        try {
+          const registration = await getReadyRegistration(3000);
+          text +=
+            '현재 ready Service Worker\n' +
+            'scope: ' + registration.scope + '\n' +
+            'active: ' + (registration.active ? registration.active.state : '없음') + '\n';
+        } catch (readyError) {
+          text += '⚠️ ready 상태 확인 실패: ' + readyError.message + '\n';
+        }
+
+        log('✅ Service Worker 확인 완료\\n\\n' + text);
+      } catch (error) {
+        log('❌ Service Worker 확인 실패\\n' + error.message);
+      }
+    }
+
+    async function requestPermission() {
+      try {
+        if (!('Notification' in window)) {
+          log('❌ 이 브라우저는 Notification API를 지원하지 않습니다.');
+          return;
+        }
+
+        const before = Notification.permission;
+
+        if (before !== 'granted') {
+          await Notification.requestPermission();
+        }
+
+        const after = Notification.permission;
+
+        log(
+          '알림 권한 확인\\n\\n' +
+          '요청 전: ' + before + '\\n' +
+          '요청 후: ' + after + '\\n\\n' +
+          (after === 'granted'
+            ? '✅ 알림 권한 granted'
+            : '❌ 알림 권한이 granted가 아닙니다.')
+        );
+      } catch (error) {
+        log('❌ 권한 확인 실패\\n' + error.message);
+      }
+    }
+
+    async function testNotification() {
+      try {
+        log('테스트 알림 준비 중...');
+
+        if (!('Notification' in window)) {
+          throw new Error('Notification API를 지원하지 않습니다.');
+        }
+
+        const permission = Notification.permission;
+
+        if (permission !== 'granted') {
+          throw new Error(
+            '현재 Notification.permission = ' + permission
+          );
+        }
+
+        const registration = await getReadyRegistration(3000);
+
+        log(
+          '알림 표시 시도 중...\\n\\n' +
+          '현재 origin: ' + location.origin + '\\n' +
+          'Notification.permission: ' + Notification.permission + '\\n' +
+          'Service Worker scope: ' + registration.scope + '\\n' +
+          'Service Worker state: ' +
+          (registration.active ? registration.active.state : '없음')
+        );
+
+        await registration.showNotification('왓츠트렌드', {
+          body: '새로운 트렌드 알림이 있어요.',
+          tag: 'whats-trend-test'
+        });
+
+        log(
+          '✅ 테스트 알림 표시 성공!\\n\\n' +
+          'origin: ' + location.origin + '\\n' +
+          'permission: ' + Notification.permission + '\\n' +
+          'scope: ' + registration.scope
+        );
+      } catch (error) {
+        log(
+          '❌ 알림 표시 실패\\n\\n' +
+          '오류: ' + error.message + '\\n\\n' +
+          'origin: ' + location.origin + '\\n' +
+          'Notification.permission: ' + Notification.permission
+        );
+      }
+    }
+
+    async function checkPushServerStatus() {
+      try {
+        log('서버 Push 상태 확인 중...');
+
+        let text = '===== 서버 Push 상태 (개발 테스트용) =====\n\n';
+
+        try {
+          const statusRes = await fetch('/api/push/status');
+          const statusData = await statusRes.json();
+          text += 'GET /api/push/status\n';
+          text += 'vapidConfigured: ' + statusData.vapidConfigured + '\n';
+          text += 'subscriptionCount: ' + statusData.subscriptionCount + '\n\n';
+        } catch (e) {
+          text += 'GET /api/push/status 실패: ' + e.message + '\n\n';
+        }
+
+        try {
+          const keyRes = await fetch('/api/push/vapid-public-key');
+          const keyData = await keyRes.json();
+          text += 'GET /api/push/vapid-public-key\n';
+          text += 'configured: ' + keyData.configured + '\n';
+          text += 'publicKey 존재 여부: ' + (keyData.publicKey ? '있음' : '없음') + '\n\n';
+        } catch (e) {
+          text += 'GET /api/push/vapid-public-key 실패: ' + e.message + '\n\n';
+        }
+
+        text += '브라우저 현재 구독 상태\n';
+        try {
+          const registration = await getReadyRegistration(3000);
+          const subscription = await registration.pushManager.getSubscription();
+          text += subscription ? '구독 중 (endpoint 있음)' : '구독 없음';
+        } catch (e) {
+          text += '확인 실패: ' + e.message;
+        }
+
+        log(text);
+      } catch (error) {
+        log('❌ 서버 Push 상태 확인 실패\n' + error.message);
+      }
+    }
+
+    async function diagnose() {
+      try {
+        let text = '===== 왓츠트렌드 Push 전체 진단 =====\\n\\n';
+
+        text += '현재 페이지\\n';
+        text += 'origin: ' + location.origin + '\\n';
+        text += 'protocol: ' + location.protocol + '\\n\\n';
+
+        text += '알림\\n';
+        text += 'Notification.permission: ' +
+          (window.Notification ? Notification.permission : '지원 안 됨') +
+          '\\n\\n';
+
+        text += 'Service Worker\\n';
+
+        if (!('serviceWorker' in navigator)) {
+          text += '지원 안 됨\\n';
+        } else {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+
+          text += '등록 개수: ' + registrations.length + '\\n';
+
+          registrations.forEach((registration, index) => {
+            text += '\\n등록 #' + (index + 1) + '\\n';
+            text += 'scope: ' + registration.scope + '\\n';
+            text += 'active: ' +
+              (registration.active ? registration.active.state : '없음') +
+              '\\n';
+          });
+
+          try {
+            const ready = await getReadyRegistration(3000);
+            text += '\nready scope: ' + ready.scope + '\n';
+            text += 'ready active: ' +
+              (ready.active ? ready.active.state : '없음') +
+              '\n';
+          } catch (readyError) {
+            text += '\n⚠️ ready 상태 확인 실패: ' + readyError.message + '\n';
+          }
+        }
+
+        text += '\\n===== 진단 완료 =====';
+
+        log(text);
+      } catch (error) {
+        log('❌ 진단 실패\\n' + error.message);
+      }
+    }
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,44 @@
+# 4-1단계: Render Node 웹 서비스 설정(free 플랜).
+#
+# free 플랜은 idle 시 프로세스가 내려갔다가 요청이 와야 재기동되는
+# spin-down 환경입니다 - server/scheduler.js, server/server.js의 관련
+# 주석에 설명된 대로 setInterval 기반 스케줄러(SCHEDULER_ENABLED)는 이런
+# 환경에서 신뢰할 수 없으므로, 아래 SCHEDULER_ENABLED는 명시적으로 "false"로
+# 고정하고, 대신 외부 크론 서비스가 POST /api/scheduler/trigger를
+# 주기적으로 호출하는 방식을 씁니다(SCHEDULER_SECRET은 값을 비워뒀으니
+# Render 대시보드에서 직접 채워야 합니다 - 이 파일에는 시크릿 값을 넣지
+# 않습니다).
+services:
+  - type: web
+    name: whats-trend-api
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run server
+    envVars:
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: NAVER_CLIENT_ID
+        sync: false
+      - key: NAVER_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_TRENDS_API_ENDPOINT
+        sync: false
+      - key: GOOGLE_TRENDS_API_KEY
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SCHEDULER_ENABLED
+        value: "false"
+      - key: SCHEDULER_SECRET
+        sync: false

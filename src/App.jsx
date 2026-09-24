@@ -2842,12 +2842,28 @@ function DataQualityBadge({ dataQuality }) {
   return <span className={`dq-badge dq-${dataQuality || "unknown"}`}>{label}</span>;
 }
 
+// 백엔드가 던지는 reason 코드(youtubeTrendGrowth.js/newsTrendGrowth.js가
+// throw하는 error.code 등, 예: "trend_growth_no_data")를 화면에 그대로
+// 노출하지 않고 사람이 읽는 문구로 바꿉니다. 백엔드는 전혀 수정하지 않고
+// 이 매핑만 프론트엔드에 둡니다 - 매핑에 없는 새 코드가 와도 같은 기본
+// 문구로 처리해서(fallback) 화면이 깨지지 않게 합니다.
+const SOURCE_REASON_MESSAGES = {
+  trend_growth_no_data: "아직 표시할 데이터가 충분하지 않아요",
+  insufficient_data: "아직 표시할 데이터가 충분하지 않아요",
+};
+const DEFAULT_SOURCE_REASON_MESSAGE = "아직 표시할 데이터가 충분하지 않아요";
+
+function formatSourceReason(reason) {
+  return SOURCE_REASON_MESSAGES[reason] || DEFAULT_SOURCE_REASON_MESSAGE;
+}
+
 function SourceScoreCard({ label, source }) {
   if (!source || !source.available) {
     return (
       <div className="source-score-card unavailable">
         <span className="source-score-label">{label}</span>
-        <p className="source-score-reason">{source?.reason || "데이터 없음"}</p>
+        <p className="source-score-reason">{formatSourceReason(source?.reason)}</p>
+        <span className="dq-badge dq-insufficient_data">데이터 없음</span>
       </div>
     );
   }

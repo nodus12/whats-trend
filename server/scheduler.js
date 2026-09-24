@@ -45,7 +45,8 @@ import {
 import { getNaverTrendGrowth } from "./naverTrendGrowth.js";
 import { getCompositeTrendScore } from "./compositeTrendScore.js";
 import { listActiveTrackedKeywords } from "./trackedKeywords.js";
-import { saveCompositeSnapshot } from "./trendHistoryApi.js";
+import { saveCompositeSnapshot, updateCompositeSnapshotExplanation } from "./trendHistoryApi.js";
+import { generateCompositeExplanation } from "./compositeTrendExplanation.js";
 
 // 4-2단계: 종합점수 일별 스냅샷. getCompositeTrendScore()는 내부적으로
 // calculateYoutubeTrendGrowth/calculateNewsTrendGrowth(Supabase 조회만,
@@ -133,6 +134,33 @@ async function saveCompositeSnapshotForKeyword(keyword) {
     compositeScore: result.compositeScore,
     sources: result.sources,
   });
+
+  // 5-1단계: 스냅샷 저장이 성공한 직후, 같은 함수 안에서 AI 설명을 생성해
+  // 같은 row에 update합니다. 독립 try/catch로 격리해서 실패해도(Gemini
+  // 오류, DB 업데이트 실패 등) 위 스냅샷 저장 자체나 다음 키워드 처리에는
+  // 전혀 영향을 주지 않습니다 - /api/trend-score는 이 값을 만들지 않고
+  // 읽기만 하므로, 여기서 실패하면 그냥 explanation 없이 남을 뿐입니다.
+  try {
+    const explanationResult = await generateCompositeExplanation({
+      keyword,
+      compositeScore: result.compositeScore,
+      sources: result.sources,
+    });
+
+    if (explanationResult.explanation) {
+      await updateCompositeSnapshotExplanation({
+        keyword,
+        snapshotDate,
+        explanation: explanationResult.explanation,
+      });
+    }
+
+    if (explanationResult.error) {
+      console.error(`[Scheduler] "${keyword}" 종합점수 설명 생성 실패(스냅샷 저장에는 영향 없음):`, explanationResult.error);
+    }
+  } catch (error) {
+    console.error(`[Scheduler] "${keyword}" 종합점수 설명 생성 예기치 못한 실패(스냅샷 저장에는 영향 없음):`, error.message);
+  }
 }
 
 /**

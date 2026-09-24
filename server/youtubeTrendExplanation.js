@@ -24,7 +24,11 @@ export const YOUTUBE_DAILY_TRENDS_TABLE = "youtube_daily_trends";
 //    models/gemini-3.5-flash-lite ...","status":"NOT_FOUND"}}
 // API가 직접 안내한 대체 모델(gemini-3.5-flash-lite)로 교체했습니다 -
 // 이 실시간 응답이 사전 문서 조사보다 더 신뢰할 수 있는 근거입니다.
-const EXPLANATION_MODEL = "gemini-3.5-flash-lite";
+// 5-1단계: server/explanationEngine.js가 이 값을 그대로 import해서
+// news/naver/composite 설명 생성에도 재사용합니다(모델 교체 시 이 한 곳만
+// 고치면 되도록 - 지시사항에 따라 export만 추가했고, 그 외 이 파일의
+// 로직/동작은 전혀 바꾸지 않았습니다).
+export const EXPLANATION_MODEL = "gemini-3.5-flash-lite";
 const VALID_LEVELS = ["strong_up", "up", "flat", "down", "strong_down"];
 const GROWTH_PERIODS = ["3d", "7d", "30d"];
 
@@ -46,7 +50,7 @@ function buildSystemPrompt() {
 // 강제합니다 - 프롬프트 지시만으로는 형식이 흔들릴 수 있어(2-3단계에서
 // Claude에 대해 방어적 파싱을 추가했던 것과 동일한 우려), API 레벨에서
 // 스키마를 강제하는 이 방식이 더 안정적입니다(요청 지시사항 5번).
-const EXPLANATION_RESPONSE_SCHEMA = {
+export const EXPLANATION_RESPONSE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     level: {

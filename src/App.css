@@ -6593,6 +6593,20 @@ svg {
   font-size: 11px;
 }
 
+.source-score-explanation {
+  color: #aaa;
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.composite-score-explanation {
+  color: #bbb;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
 .dq-badge {
   display: inline-block;
   width: fit-content;

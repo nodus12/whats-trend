@@ -66,6 +66,77 @@ export async function saveCompositeSnapshot({ keyword, snapshotDate, compositeSc
   return Array.isArray(data) && data.length > 0 ? data[0] : null;
 }
 
+/**
+ * 5-1단계: scheduler.js가 saveCompositeSnapshot() 직후 같은 (keyword,
+ * snapshot_date) row에 AI 설명(explanation_*)만 업데이트합니다(별도 upsert
+ * 아님 - 그 row가 이미 존재한다는 전제로 update만 수행).
+ * @param {Object} params
+ * @param {string} params.keyword
+ * @param {string} params.snapshotDate - YYYY-MM-DD
+ * @param {{level:string, text:string}} params.explanation
+ */
+export async function updateCompositeSnapshotExplanation({ keyword, snapshotDate, explanation }) {
+  if (!isSupabaseConfigured()) {
+    const error = new Error("Supabase가 설정되지 않았습니다(SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 필요).");
+    error.code = "supabase_not_configured";
+    throw error;
+  }
+
+  const client = getSupabaseClient();
+
+  const { error } = await client
+    .from(COMPOSITE_SNAPSHOTS_TABLE)
+    .update({
+      explanation_level: explanation.level,
+      explanation_text: explanation.text,
+      explanation_generated_at: new Date().toISOString(),
+    })
+    .eq("keyword", keyword)
+    .eq("snapshot_date", snapshotDate);
+
+  if (error) {
+    const sanitized = new Error(`Supabase 저장 실패: ${error.message ?? "unknown_error"}`);
+    sanitized.code = "supabase_save_failed";
+    throw sanitized;
+  }
+}
+
+/**
+ * 5-1단계: /api/trend-score 라우트가 AI를 호출하지 않고, 오늘 날짜의
+ * composite_trend_snapshots row에 이미 저장된 explanation만 읽습니다.
+ * row가 없거나 explanation_text가 비어있으면 null을 반환합니다(에러 아님).
+ * @param {string} keyword
+ * @param {string} snapshotDate - YYYY-MM-DD (오늘, UTC)
+ * @returns {Promise<{level:string, text:string}|null>}
+ */
+export async function getTodayCompositeExplanation(keyword, snapshotDate) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const client = getSupabaseClient();
+
+  const { data, error } = await client
+    .from(COMPOSITE_SNAPSHOTS_TABLE)
+    .select("explanation_level, explanation_text")
+    .eq("keyword", keyword)
+    .eq("snapshot_date", snapshotDate)
+    .limit(1);
+
+  if (error) {
+    console.error("Composite explanation 조회 실패(응답에는 영향 없음):", error.message);
+    return null;
+  }
+
+  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+
+  if (row && typeof row.explanation_text === "string" && row.explanation_text) {
+    return { level: row.explanation_level, text: row.explanation_text };
+  }
+
+  return null;
+}
+
 function assertSupabaseConfigured() {
   if (!isSupabaseConfigured()) {
     const error = new Error("Supabase가 설정되지 않았습니다(SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 필요).");

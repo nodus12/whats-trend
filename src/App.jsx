@@ -32,6 +32,9 @@ import {
   addKeyword,
   deleteKeyword,
   fetchTrendScore,
+  fetchYoutubeTrendGrowth,
+  fetchNewsTrendGrowth,
+  fetchNaverTrendGrowth,
   fetchYoutubeHistory,
   fetchNewsHistory,
   fetchNaverHistory,
@@ -2857,6 +2860,12 @@ function formatSourceReason(reason) {
   return SOURCE_REASON_MESSAGES[reason] || DEFAULT_SOURCE_REASON_MESSAGE;
 }
 
+// 5-1단계: AI 설명(explanation)이 아직 캐시/생성되지 않았을 때 표시할
+// 문구입니다. 4-3단계와 동일한 원칙(내부 에러 문자열을 그대로 노출하지
+// 않고 사람이 읽는 기본 문구로 통일) - explanationResult.error 값은
+// 화면에 절대 노출하지 않습니다.
+const EXPLANATION_PLACEHOLDER = "아직 설명이 준비되지 않았어요";
+
 function SourceScoreCard({ label, source }) {
   if (!source || !source.available) {
     return (
@@ -2877,6 +2886,7 @@ function SourceScoreCard({ label, source }) {
         {value === null || value === undefined ? "-" : `${value > 0 ? "+" : ""}${value}`}
       </strong>
       <DataQualityBadge dataQuality={dataQuality} />
+      <p className="source-score-explanation">{source.explanation?.text || EXPLANATION_PLACEHOLDER}</p>
     </div>
   );
 }
@@ -3006,8 +3016,47 @@ function KeywordDashboardPage() {
       setScoreError("");
 
       try {
-        const data = await fetchTrendScore(keyword);
-        if (!cancelled) setScoreData(data);
+        // 5-1단계: /api/trend-score(compositeTrendScore.js)는 개별
+        // /api/{youtube,news,naver}/trend-growth 라우트를 거치지 않고
+        // 계산 함수를 직접 호출하므로 sources.{youtube,news,naver}에
+        // explanation이 없습니다 - 그래서 개별 엔드포인트를 병렬로 따로
+        // 호출해서 explanation만 꺼내 붙입니다. 값(트렌드 점수)은
+        // /api/trend-score 쪽(소스 단위 가중치가 정규화된 값)을 그대로
+        // 신뢰하고 덮어쓰지 않습니다.
+        const [scoreResult, ytResult, newsResult, naverResult] = await Promise.allSettled([
+          fetchTrendScore(keyword),
+          fetchYoutubeTrendGrowth(keyword),
+          fetchNewsTrendGrowth(keyword),
+          fetchNaverTrendGrowth(keyword),
+        ]);
+
+        if (cancelled) return;
+
+        if (scoreResult.status !== "fulfilled") {
+          setScoreError("종합 점수를 불러오지 못했어요.");
+          return;
+        }
+
+        const data = scoreResult.value;
+        const withExplanation = {
+          ...data,
+          sources: {
+            youtube: {
+              ...data.sources.youtube,
+              explanation: ytResult.status === "fulfilled" ? ytResult.value.explanation : null,
+            },
+            news: {
+              ...data.sources.news,
+              explanation: newsResult.status === "fulfilled" ? newsResult.value.explanation : null,
+            },
+            naver: {
+              ...data.sources.naver,
+              explanation: naverResult.status === "fulfilled" ? naverResult.value.explanation : null,
+            },
+          },
+        };
+
+        setScoreData(withExplanation);
       } catch {
         if (!cancelled) setScoreError("종합 점수를 불러오지 못했어요.");
       } finally {
@@ -3131,6 +3180,7 @@ function KeywordDashboardPage() {
                     : `${scoreData.compositeScore.value > 0 ? "+" : ""}${scoreData.compositeScore.value}`}
                 </strong>
                 <DataQualityBadge dataQuality={scoreData.compositeScore.dataQuality} />
+                <p className="composite-score-explanation">{scoreData.explanation?.text || EXPLANATION_PLACEHOLDER}</p>
               </div>
 
               <div className="source-score-grid">

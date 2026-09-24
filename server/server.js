@@ -12,7 +12,9 @@ import { calculateYoutubeTrendGrowth, calculateTrendScore } from "./youtubeTrend
 import { getOrCreateExplanation } from "./youtubeTrendExplanation.js";
 import { collectNewsDailyMentionCount, saveNewsDailyTrend, toUtcDateString as toUtcNewsDateString } from "./newsDailyTrend.js";
 import { calculateNewsTrendGrowth } from "./newsTrendGrowth.js";
+import { getOrCreateNewsExplanation } from "./newsTrendExplanation.js";
 import { getNaverTrendGrowth } from "./naverTrendGrowth.js";
+import { getOrCreateNaverExplanation } from "./naverTrendExplanation.js";
 import { getCompositeTrendScore } from "./compositeTrendScore.js";
 import {
   listTrackedKeywords,
@@ -29,6 +31,7 @@ import {
   getNewsTrendHistory,
   getNaverTrendHistory,
   getCompositeTrendHistory,
+  getTodayCompositeExplanation,
 } from "./trendHistoryApi.js";
 import { aggregateTrends } from "./trendAggregator.js";
 import { isVapidConfigured, getVapidPublicKey } from "./webPush.js";
@@ -277,12 +280,34 @@ app.get("/api/news/trend-growth", async (req, res) => {
     const result = await calculateNewsTrendGrowth(query);
     const trendScore = calculateTrendScore(result.growth);
 
+    // 5-1단계: YouTube 라우트와 동일한 패턴 - calculateNewsTrendGrowth()로
+    // 이미 row가 저장된 뒤(collectedDate = result.today.date) 호출하고,
+    // getOrCreateNewsExplanation() 자체가 절대 throw하지 않지만 예기치
+    // 못한 예외에 대비해 한 번 더 감쌉니다.
+    let explanation = null;
+    try {
+      const explanationResult = await getOrCreateNewsExplanation({
+        keyword: result.keyword,
+        collectedDate: result.today.date,
+        today: result.today,
+        growth: result.growth,
+        trendScore,
+      });
+      explanation = explanationResult.explanation;
+      if (explanationResult.error) {
+        console.error("News trend explanation 실패(응답에는 영향 없음):", explanationResult.error);
+      }
+    } catch (explanationError) {
+      console.error("News trend explanation 예기치 못한 실패(응답에는 영향 없음):", explanationError.message);
+    }
+
     res.json({
       success: true,
       keyword: result.keyword,
       today: result.today,
       growth: result.growth,
       trendScore,
+      explanation,
     });
   } catch (error) {
     console.error("News trend-growth request failed:", error.message);
@@ -322,7 +347,35 @@ app.get("/api/naver/trend-growth", async (req, res) => {
 
   try {
     const result = await getNaverTrendGrowth(query);
-    res.json(result);
+
+    // 5-1단계: getNaverTrendGrowth()는 API 실패도 throw하지 않고
+    // { error: "naver_api_unavailable", ... } 형태로 정상 반환합니다
+    // (naverTrendGrowth.js 참고) - 이 경우 row 자체가 없을 수 있으므로
+    // explanation 함수를 아예 호출하지 않고 explanation: null 처리합니다
+    // (지시사항 Part 3). result.error가 없을 때만 설명을 조회/생성합니다.
+    if (result.error) {
+      res.json({ ...result, explanation: null });
+      return;
+    }
+
+    let explanation = null;
+    try {
+      const explanationResult = await getOrCreateNaverExplanation({
+        keyword: result.keyword,
+        cacheDate: result.requestedAt,
+        today: { date: result.asOf },
+        growth: result.growth,
+        trendScore: result.trendScore,
+      });
+      explanation = explanationResult.explanation;
+      if (explanationResult.error) {
+        console.error("Naver trend explanation 실패(응답에는 영향 없음):", explanationResult.error);
+      }
+    } catch (explanationError) {
+      console.error("Naver trend explanation 예기치 못한 실패(응답에는 영향 없음):", explanationError.message);
+    }
+
+    res.json({ ...result, explanation });
   } catch (error) {
     console.error("Naver trend-growth request failed:", error.message);
 
@@ -350,7 +403,16 @@ app.get("/api/trend-score", async (req, res) => {
 
   try {
     const result = await getCompositeTrendScore(query);
-    res.json(result);
+
+    // 5-1단계: 이 라우트는 AI를 호출하지 않습니다 - 오늘 날짜의
+    // composite_trend_snapshots row에 scheduler.js가 이미 저장해둔
+    // explanation이 있으면 그것만 읽어서 포함하고, 없으면 null입니다
+    // (지시사항 Part 4). 조회 실패도 getTodayCompositeExplanation()이
+    // 내부적으로 null로 흡수하므로 이 라우트의 성공/실패에 영향 없습니다.
+    const todaySnapshotDate = new Date().toISOString().slice(0, 10);
+    const explanation = await getTodayCompositeExplanation(result.keyword, todaySnapshotDate);
+
+    res.json({ ...result, explanation });
   } catch (error) {
     console.error("Composite trend-score request failed:", error.message);
 

@@ -44,6 +44,23 @@ export async function fetchTrendScore(keyword) {
   return data;
 }
 
+// 5-1단계: 소스별 카드에 AI 설명(explanation)을 표시하기 위해 개별
+// trend-growth 엔드포인트도 호출합니다. /api/trend-score(compositeTrendScore.js)는
+// 내부적으로 이 라우트들을 거치지 않고 계산 함수를 직접 호출하므로
+// explanation을 만들지 않습니다 - 그래서 소스별 explanation은 반드시 이
+// 개별 엔드포인트에서만 얻을 수 있습니다.
+export async function fetchYoutubeTrendGrowth(keyword) {
+  return getJson(`/api/youtube/trend-growth?q=${encodeURIComponent(keyword)}`);
+}
+
+export async function fetchNewsTrendGrowth(keyword) {
+  return getJson(`/api/news/trend-growth?q=${encodeURIComponent(keyword)}`);
+}
+
+export async function fetchNaverTrendGrowth(keyword) {
+  return getJson(`/api/naver/trend-growth?q=${encodeURIComponent(keyword)}`);
+}
+
 export async function fetchYoutubeHistory(keyword) {
   return getJson(`/api/youtube/trend-history?q=${encodeURIComponent(keyword)}`);
 }

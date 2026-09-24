@@ -27,6 +27,25 @@ import {
   disablePushNotifications,
   syncNotificationSettingsToServer,
 } from "./utils/pushNotifications.js";
+import {
+  fetchKeywords,
+  addKeyword,
+  deleteKeyword,
+  fetchTrendScore,
+  fetchYoutubeHistory,
+  fetchNewsHistory,
+  fetchNaverHistory,
+  fetchCompositeHistory,
+} from "./api/monitoring.js";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 
 const categories = [
   "전체",
@@ -367,6 +386,16 @@ function BackIcon() {
   return (
     <svg viewBox="0 0 24 24">
       <path d="m15 18-6-6 6-6" />
+    </svg>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <path d="M4 20V10" />
+      <path d="M11 20V4" />
+      <path d="M18 20v-7" />
     </svg>
   );
 }
@@ -2791,6 +2820,329 @@ function DetailPage({
   );
 }
 
+// ============================================================
+// 4-2단계: 키워드 모니터링 대시보드
+// ============================================================
+// 기존 Home/Explore/My 페이지, 목업 trends 배열, personalization.js/
+// notifications.js/pushNotifications.js와는 완전히 독립적으로 동작합니다.
+// GET /api/keywords, POST /api/keywords, DELETE /api/keywords/:id,
+// GET /api/trend-score, GET /api/{youtube,news,naver,composite}/trend-history
+// 만 사용합니다.
+
+function DataQualityBadge({ dataQuality }) {
+  const label =
+    {
+      ok: "정상",
+      partial: "일부",
+      partial_unreliable: "일부 불안정",
+      unreliable: "불안정",
+      insufficient_data: "데이터 부족",
+    }[dataQuality] || dataQuality || "알 수 없음";
+
+  return <span className={`dq-badge dq-${dataQuality || "unknown"}`}>{label}</span>;
+}
+
+function SourceScoreCard({ label, source }) {
+  if (!source || !source.available) {
+    return (
+      <div className="source-score-card unavailable">
+        <span className="source-score-label">{label}</span>
+        <p className="source-score-reason">{source?.reason || "데이터 없음"}</p>
+      </div>
+    );
+  }
+
+  const { value, dataQuality } = source.trendScore || {};
+
+  return (
+    <div className="source-score-card">
+      <span className="source-score-label">{label}</span>
+      <strong className="source-score-value">
+        {value === null || value === undefined ? "-" : `${value > 0 ? "+" : ""}${value}`}
+      </strong>
+      <DataQualityBadge dataQuality={dataQuality} />
+    </div>
+  );
+}
+
+function TrendHistoryChart({ title, data, color }) {
+  const hasData = Array.isArray(data) && data.some((point) => point.value !== null && point.value !== undefined);
+
+  return (
+    <div className="history-chart-card">
+      <h3>{title}</h3>
+      {!hasData ? (
+        <div className="history-chart-empty">아직 표시할 데이터가 충분하지 않아요.</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+            <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }} />
+            <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }} />
+            <Tooltip
+              contentStyle={{ background: "#141414", border: "1px solid rgba(255,255,255,0.15)" }}
+              labelStyle={{ color: "#fff" }}
+            />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke={color}
+              strokeWidth={2}
+              dot={false}
+              connectNulls={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+function KeywordDashboardPage() {
+  const [keywords, setKeywords] = useState([]);
+  const [keywordsLoading, setKeywordsLoading] = useState(true);
+  const [keywordsError, setKeywordsError] = useState("");
+  const [newKeyword, setNewKeyword] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+
+  const [scoreData, setScoreData] = useState(null);
+  const [scoreLoading, setScoreLoading] = useState(false);
+  const [scoreError, setScoreError] = useState("");
+
+  const [histories, setHistories] = useState({
+    youtube: [],
+    news: [],
+    naver: [],
+    composite: [],
+  });
+  const [historiesLoading, setHistoriesLoading] = useState(false);
+
+  const activeKeywords = useMemo(
+    () => keywords.filter((k) => k.is_active),
+    [keywords]
+  );
+
+  const selectedKeyword = useMemo(
+    () => keywords.find((k) => k.id === selectedId) || null,
+    [keywords, selectedId]
+  );
+
+  const loadKeywords = async () => {
+    setKeywordsLoading(true);
+    setKeywordsError("");
+
+    try {
+      const data = await fetchKeywords();
+      setKeywords(data.keywords || []);
+    } catch {
+      setKeywordsError("키워드 목록을 불러오지 못했어요.");
+    } finally {
+      setKeywordsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadKeywords();
+  }, []);
+
+  const handleAddKeyword = async (event) => {
+    event.preventDefault();
+    const trimmed = newKeyword.trim();
+    if (!trimmed) return;
+
+    setAdding(true);
+    try {
+      await addKeyword(trimmed);
+      setNewKeyword("");
+      await loadKeywords();
+    } catch (error) {
+      alert(error.message || "키워드를 추가하지 못했어요.");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDeleteKeyword = async (id) => {
+    try {
+      await deleteKeyword(id);
+      if (selectedId === id) {
+        setSelectedId(null);
+      }
+      await loadKeywords();
+    } catch {
+      alert("키워드를 삭제하지 못했어요.");
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedKeyword) {
+      setScoreData(null);
+      setHistories({ youtube: [], news: [], naver: [], composite: [] });
+      return;
+    }
+
+    let cancelled = false;
+    const keyword = selectedKeyword.keyword;
+
+    async function loadScore() {
+      setScoreLoading(true);
+      setScoreError("");
+
+      try {
+        const data = await fetchTrendScore(keyword);
+        if (!cancelled) setScoreData(data);
+      } catch {
+        if (!cancelled) setScoreError("종합 점수를 불러오지 못했어요.");
+      } finally {
+        if (!cancelled) setScoreLoading(false);
+      }
+    }
+
+    async function loadHistories() {
+      setHistoriesLoading(true);
+
+      const [yt, news, naver, composite] = await Promise.allSettled([
+        fetchYoutubeHistory(keyword),
+        fetchNewsHistory(keyword),
+        fetchNaverHistory(keyword),
+        fetchCompositeHistory(keyword),
+      ]);
+
+      if (cancelled) return;
+
+      const toValueSeries = (result, dateKey, valueKey, extract) => {
+        if (result.status !== "fulfilled") return [];
+        return (result.value.history || []).map((row) => ({
+          date: row[dateKey],
+          value: extract ? extract(row) : row[valueKey],
+        }));
+      };
+
+      setHistories({
+        youtube: toValueSeries(yt, "date", "video_count"),
+        news: toValueSeries(news, "date", "mention_count"),
+        naver: toValueSeries(naver, "cache_date", null, (row) => row.trend_score?.value ?? null),
+        composite: toValueSeries(composite, "snapshot_date", "composite_value"),
+      });
+      setHistoriesLoading(false);
+    }
+
+    loadScore();
+    loadHistories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedKeyword]);
+
+  return (
+    <div className="content monitoring-page">
+      <section className="monitoring-header">
+        <span className="section-label">MONITORING</span>
+        <h1>
+          키워드
+          <br />
+          <span>모니터링</span>
+        </h1>
+        <p>감시할 키워드를 등록하고, 소스별 트렌드 점수 변화를 확인하세요.</p>
+      </section>
+
+      <section className="monitoring-section">
+        <form className="monitoring-add-form" onSubmit={handleAddKeyword}>
+          <input
+            value={newKeyword}
+            onChange={(e) => setNewKeyword(e.target.value)}
+            placeholder="감시할 키워드를 입력하세요"
+            disabled={adding}
+          />
+          <button type="submit" disabled={adding || !newKeyword.trim()}>
+            {adding ? "추가 중..." : "추가"}
+          </button>
+        </form>
+
+        {keywordsLoading ? (
+          <div className="monitoring-empty">키워드 목록을 불러오는 중...</div>
+        ) : keywordsError ? (
+          <div className="monitoring-empty">{keywordsError}</div>
+        ) : activeKeywords.length === 0 ? (
+          <div className="monitoring-empty">등록된 키워드가 없어요. 위에서 추가해보세요.</div>
+        ) : (
+          <ul className="monitoring-keyword-list">
+            {activeKeywords.map((item) => (
+              <li
+                key={item.id}
+                className={selectedId === item.id ? "selected" : ""}
+                onClick={() => setSelectedId(item.id)}
+              >
+                <span>{item.keyword}</span>
+                <button
+                  className="monitoring-delete-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteKeyword(item.id);
+                  }}
+                  aria-label={`${item.keyword} 삭제`}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {selectedKeyword && (
+        <section className="monitoring-section">
+          <div className="section-header">
+            <div>
+              <span className="section-label">CURRENT SCORE</span>
+              <h2>{selectedKeyword.keyword}</h2>
+            </div>
+          </div>
+
+          {scoreLoading ? (
+            <div className="monitoring-empty">종합 점수를 불러오는 중...</div>
+          ) : scoreError ? (
+            <div className="monitoring-empty">{scoreError}</div>
+          ) : scoreData ? (
+            <>
+              <div className="composite-score-card">
+                <span>종합 점수</span>
+                <strong>
+                  {scoreData.compositeScore.value === null
+                    ? "-"
+                    : `${scoreData.compositeScore.value > 0 ? "+" : ""}${scoreData.compositeScore.value}`}
+                </strong>
+                <DataQualityBadge dataQuality={scoreData.compositeScore.dataQuality} />
+              </div>
+
+              <div className="source-score-grid">
+                <SourceScoreCard label="YouTube" source={scoreData.sources.youtube} />
+                <SourceScoreCard label="뉴스" source={scoreData.sources.news} />
+                <SourceScoreCard label="네이버" source={scoreData.sources.naver} />
+              </div>
+            </>
+          ) : null}
+
+          <div className="history-chart-grid">
+            {historiesLoading ? (
+              <div className="monitoring-empty">그래프 데이터를 불러오는 중...</div>
+            ) : (
+              <>
+                <TrendHistoryChart title="YouTube 영상 수" data={histories.youtube} color="#ff5c5c" />
+                <TrendHistoryChart title="뉴스 언급량" data={histories.news} color="#5c9dff" />
+                <TrendHistoryChart title="네이버 Trend Score" data={histories.naver} color="#5cffb0" />
+                <TrendHistoryChart title="종합 점수" data={histories.composite} color="#ffd15c" />
+              </>
+            )}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function App() {
   // Push Notification 초기화
   useEffect(() => {
@@ -2884,6 +3236,7 @@ function App() {
     { id: "home", label: "홈", icon: <HomeIcon /> },
     { id: "explore", label: "탐색", icon: <SearchIcon /> },
     { id: "my", label: "MY", icon: <BookmarkIcon /> },
+    { id: "monitoring", label: "모니터링", icon: <ChartIcon /> },
     { id: "profile", label: "프로필", icon: <UserIcon /> },
   ];
 
@@ -3080,6 +3433,8 @@ function App() {
             settings={notificationSettings}
             onUpdateSettings={updateNotificationSettings}
           />
+        ) : activeTab === "monitoring" ? (
+          <KeywordDashboardPage />
         ) : activeTab === "profile" ? (
           <ProfilePage
             onOpenPro={() => setShowPro(true)}

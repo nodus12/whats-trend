@@ -43,7 +43,20 @@ import {
   toUtcDateString as toUtcNewsDateString,
 } from "./newsDailyTrend.js";
 import { getNaverTrendGrowth } from "./naverTrendGrowth.js";
+import { getCompositeTrendScore } from "./compositeTrendScore.js";
 import { listActiveTrackedKeywords } from "./trackedKeywords.js";
+import { saveCompositeSnapshot } from "./trendHistoryApi.js";
+
+// 4-2단계: 종합점수 일별 스냅샷. getCompositeTrendScore()는 내부적으로
+// calculateYoutubeTrendGrowth/calculateNewsTrendGrowth(Supabase 조회만,
+// 외부 API 호출 없음)와 getNaverTrendGrowth()를 다시 호출합니다 - 네이버
+// 쪽은 바로 위 collectNaverForKeyword()가 같은 날짜로 이미 캐시를 채워둔
+// 뒤라 naverTrendGrowth.js의 캐시 우선 조회 로직에 의해 캐시 히트로
+// 처리되므로, 이 스냅샷 단계 때문에 네이버 API가 추가로 호출되지는
+// 않습니다.
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
+}
 
 // 하루 3회 기준 8시간.
 export const SCHEDULED_COLLECTION_INTERVAL_MS = 8 * 60 * 60 * 1000;
@@ -103,11 +116,31 @@ async function collectNaverForKeyword(keyword) {
 }
 
 /**
- * 키워드 하나에 대해 YouTube -> 뉴스 -> 네이버 순서로 수집합니다. 소스
- * 하나가 실패해도(개별 try/catch) 나머지 소스는 계속 진행합니다 - 실패는
- * 로그로만 남기고, 자격증명 값은 각 소스 모듈이 이미 sanitize한 에러만
- * 전달하므로 그대로 로그에 남겨도 안전합니다(naverTrendGrowth.js의
- * toSanitizedNaverError() 등 기존 원칙 그대로 적용).
+ * 위 세 소스 수집이 끝난 뒤, getCompositeTrendScore()를 그대로 호출해
+ * 종합점수를 계산하고 composite_trend_snapshots에 upsert합니다. 이
+ * 단계가 실패해도(계산 실패, Supabase 저장 실패 등) 해당 키워드의 나머지
+ * 처리나 다음 키워드 진행에 영향을 주지 않습니다 - 호출부에서 이 함수
+ * 전체를 try/catch로 감쌉니다.
+ * @param {string} keyword
+ */
+async function saveCompositeSnapshotForKeyword(keyword) {
+  const result = await getCompositeTrendScore(keyword);
+  const snapshotDate = formatDate(new Date());
+
+  await saveCompositeSnapshot({
+    keyword,
+    snapshotDate,
+    compositeScore: result.compositeScore,
+    sources: result.sources,
+  });
+}
+
+/**
+ * 키워드 하나에 대해 YouTube -> 뉴스 -> 네이버 -> 종합점수 스냅샷 순서로
+ * 수집합니다. 소스 하나가 실패해도(개별 try/catch) 나머지 소스는 계속
+ * 진행합니다 - 실패는 로그로만 남기고, 자격증명 값은 각 소스 모듈이 이미
+ * sanitize한 에러만 전달하므로 그대로 로그에 남겨도 안전합니다
+ * (naverTrendGrowth.js의 toSanitizedNaverError() 등 기존 원칙 그대로 적용).
  * @param {string} keyword
  */
 async function collectAllSourcesForKeyword(keyword) {
@@ -126,7 +159,13 @@ async function collectAllSourcesForKeyword(keyword) {
   try {
     await collectNaverForKeyword(keyword);
   } catch (error) {
-    console.error(`[Scheduler] "${keyword}" 네이버 조회 실패(다음 키워드로 계속 진행):`, error.message);
+    console.error(`[Scheduler] "${keyword}" 네이버 조회 실패(다음 소스로 계속 진행):`, error.message);
+  }
+
+  try {
+    await saveCompositeSnapshotForKeyword(keyword);
+  } catch (error) {
+    console.error(`[Scheduler] "${keyword}" 종합점수 스냅샷 저장 실패(다음 키워드로 계속 진행):`, error.message);
   }
 }
 

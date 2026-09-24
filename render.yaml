@@ -1,4 +1,8 @@
 # 4-1단계: Render Node 웹 서비스 설정(free 플랜).
+# 4-2단계: buildCommand에 "npm run build"를 추가해서 배포 시 React 프론트
+# 엔드도 dist/로 빌드되게 했습니다 - server/server.js가 dist/index.html
+# 존재 여부로 정적 서빙을 자동 판단하므로, 이 한 줄 추가만으로 API+프론트
+# 모두 이 한 서비스에서 서빙됩니다(로컬 개발 흐름은 그대로 영향 없음).
 #
 # free 플랜은 idle 시 프로세스가 내려갔다가 요청이 와야 재기동되는
 # spin-down 환경입니다 - server/scheduler.js, server/server.js의 관련
@@ -13,7 +17,7 @@ services:
     name: whats-trend-api
     env: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: npm run server
     envVars:
       - key: VAPID_PUBLIC_KEY

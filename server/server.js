@@ -1,5 +1,8 @@
 import cors from "cors";
 import express from "express";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { initializeDatabase } from "./database.js";
 import { fetchGoogleNews } from "./rss.js";
 import { fetchYoutubeVideos } from "./youtube.js";
@@ -21,6 +24,12 @@ import {
   SCHEDULED_COLLECTION_INTERVAL_MS,
   isSchedulerRunning,
 } from "./scheduler.js";
+import {
+  getYoutubeTrendHistory,
+  getNewsTrendHistory,
+  getNaverTrendHistory,
+  getCompositeTrendHistory,
+} from "./trendHistoryApi.js";
 import { aggregateTrends } from "./trendAggregator.js";
 import { isVapidConfigured, getVapidPublicKey } from "./webPush.js";
 import {
@@ -352,6 +361,77 @@ app.get("/api/trend-score", async (req, res) => {
   }
 });
 
+// 4-2단계: 그래프용 원본 히스토리 조회 4종. 전부 단순 Supabase 조회
+// 전용이며(계산 없음), 데이터가 없으면 빈 배열을 반환합니다(에러 아님) -
+// trendHistoryApi.js의 각 함수가 이미 그렇게 동작합니다.
+app.get("/api/youtube/trend-history", async (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  if (!query) {
+    res.status(400).json({ success: false, message: "검색어(q)가 필요합니다." });
+    return;
+  }
+
+  try {
+    const history = await getYoutubeTrendHistory(query);
+    res.json({ success: true, keyword: query, history });
+  } catch (error) {
+    console.error("YouTube trend-history request failed:", error.message);
+    res.status(502).json({ success: false, message: "YouTube 히스토리를 가져오지 못했습니다." });
+  }
+});
+
+app.get("/api/news/trend-history", async (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  if (!query) {
+    res.status(400).json({ success: false, message: "검색어(q)가 필요합니다." });
+    return;
+  }
+
+  try {
+    const history = await getNewsTrendHistory(query);
+    res.json({ success: true, keyword: query, history });
+  } catch (error) {
+    console.error("News trend-history request failed:", error.message);
+    res.status(502).json({ success: false, message: "뉴스 히스토리를 가져오지 못했습니다." });
+  }
+});
+
+app.get("/api/naver/trend-history", async (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  if (!query) {
+    res.status(400).json({ success: false, message: "검색어(q)가 필요합니다." });
+    return;
+  }
+
+  try {
+    const history = await getNaverTrendHistory(query);
+    res.json({ success: true, keyword: query, history });
+  } catch (error) {
+    console.error("Naver trend-history request failed:", error.message);
+    res.status(502).json({ success: false, message: "네이버 히스토리를 가져오지 못했습니다." });
+  }
+});
+
+app.get("/api/composite/trend-history", async (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  if (!query) {
+    res.status(400).json({ success: false, message: "검색어(q)가 필요합니다." });
+    return;
+  }
+
+  try {
+    const history = await getCompositeTrendHistory(query);
+    res.json({ success: true, keyword: query, history });
+  } catch (error) {
+    console.error("Composite trend-history request failed:", error.message);
+    res.status(502).json({ success: false, message: "종합점수 히스토리를 가져오지 못했습니다." });
+  }
+});
+
 app.get("/api/trends", async (req, res) => {
   const query = typeof req.query.q === "string" ? req.query.q : "AI";
 
@@ -657,6 +737,29 @@ app.post("/api/scheduler/trigger", (req, res) => {
     console.error("Scheduler trigger 실행 실패(응답에는 이미 영향 없음):", error.message);
   });
 });
+
+// 4-2단계: dist/(React 빌드 결과물)가 있으면 정적으로 서빙하고, 없으면
+// (로컬에서 npm run server만 단독 실행한 경우) 조용히 건너뜁니다 - 기존
+// npm run dev + npm run server 분리 실행 흐름을 깨지 않기 위함입니다.
+// 반드시 위의 모든 /api/* 라우트 등록 "이후"에 위치해야, 아래 catch-all이
+// API 라우트를 가로채지 않습니다. Express 5는 문자열 와일드카드("*")
+// 대신 이름 붙은 와일드카드를 요구하므로, 여기서는 RegExp를 직접 써서
+// "/api/로 시작하지 않는 모든 GET 요청"만 index.html로 넘깁니다.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__dirname, "..", "dist");
+const distIndexPath = path.join(distPath, "index.html");
+
+if (fs.existsSync(distIndexPath)) {
+  app.use(express.static(distPath));
+
+  app.get(/^\/(?!api\/).*/, (req, res) => {
+    res.sendFile(distIndexPath);
+  });
+
+  console.log("[Static] dist/ 발견 - React 빌드 결과물을 서빙합니다.");
+} else {
+  console.log("[Static] dist/ 없음 - API 전용 모드로 동작합니다(로컬 개발 시 정상).");
+}
 
 app.listen(port, () => {
   console.log(`WHAT'S TREND API listening on http://localhost:${port}`);

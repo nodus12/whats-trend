@@ -6422,3 +6422,239 @@ svg {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* =========================
+   4-2단계: KEYWORD MONITORING DASHBOARD
+========================= */
+
+.monitoring-page {
+  padding-bottom: 110px;
+}
+
+.monitoring-header {
+  padding: 30px 0 10px;
+}
+
+.monitoring-header h1 {
+  margin: 13px 0 12px;
+  font-size: clamp(36px, 5vw, 52px);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+}
+
+.monitoring-header p {
+  color: #aaa;
+  font-size: 14px;
+}
+
+.monitoring-section {
+  margin-top: 28px;
+}
+
+.monitoring-add-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.monitoring-add-form input {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #141414;
+  color: #fff;
+  font-size: 14px;
+}
+
+.monitoring-add-form button {
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: none;
+  background: #fff;
+  color: #080808;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.monitoring-add-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.monitoring-empty {
+  padding: 24px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  color: #999;
+  font-size: 13px;
+  text-align: center;
+}
+
+.monitoring-keyword-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  list-style: none;
+}
+
+.monitoring-keyword-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #141414;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.monitoring-keyword-list li.selected {
+  border-color: #fff;
+  background: #1e1e1e;
+}
+
+.monitoring-delete-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #aaa;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.monitoring-delete-button:hover {
+  background: rgba(255, 92, 92, 0.25);
+  color: #ff5c5c;
+}
+
+.composite-score-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #1a1a1a, #0d0d0d);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 14px;
+}
+
+.composite-score-card span {
+  color: #aaa;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.composite-score-card strong {
+  font-size: 36px;
+  letter-spacing: -0.03em;
+}
+
+.source-score-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.source-score-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.source-score-card.unavailable {
+  opacity: 0.6;
+}
+
+.source-score-label {
+  color: #999;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.source-score-value {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.source-score-reason {
+  color: #777;
+  font-size: 11px;
+}
+
+.dq-badge {
+  display: inline-block;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ccc;
+}
+
+.dq-badge.dq-ok {
+  background: rgba(92, 255, 176, 0.15);
+  color: #5cffb0;
+}
+
+.dq-badge.dq-partial,
+.dq-badge.dq-partial_unreliable,
+.dq-badge.dq-unreliable {
+  background: rgba(255, 209, 92, 0.15);
+  color: #ffd15c;
+}
+
+.dq-badge.dq-insufficient_data {
+  background: rgba(255, 255, 255, 0.06);
+  color: #888;
+}
+
+.history-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.history-chart-card {
+  padding: 16px;
+  border-radius: 16px;
+  background: #101010;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.history-chart-card h3 {
+  font-size: 13px;
+  color: #ccc;
+  margin-bottom: 10px;
+}
+
+.history-chart-empty {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .source-score-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .history-chart-grid {
+    grid-template-columns: 1fr;
+  }
+}

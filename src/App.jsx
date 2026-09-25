@@ -50,6 +50,8 @@ import {
   Tooltip,
 } from "recharts";
 import { supabase } from "./supabaseClient.js";
+import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
+import { startBilling, confirmBilling } from "./api/subscription.js";
 
 const categories = [
   "전체",
@@ -1997,20 +1999,21 @@ function NotificationSettingsPage({ onClose, settings, onUpdateSettings }) {
   );
 }
 
-function ProPage({ onClose, onActivatePro, isPro }) {
+// Phase D: mock 활성화(confirm() → 즉시 tier='pro') 대신 실제 토스페이먼츠
+// 자동결제 등록 흐름을 씁니다 - 플랜 카드를 눌러 monthly/yearly를 고르고
+// "PRO 시작하기"를 누르면 onStartPayment(selectedPlan)이 카드 등록창을
+// 엽니다. 기존 mock 엔드포인트(/api/pro/activate-mock 등)는 서버에는
+// 그대로 남아있지만, 이 화면에서는 더 이상 호출하지 않습니다.
+function ProPage({ onClose, onStartPayment, isPro, paymentStarting }) {
+  const [selectedPlan, setSelectedPlan] = useState("yearly");
+
   const handleActivate = () => {
     if (isPro) {
       alert("이미 PRO 이용 중입니다.");
       return;
     }
 
-    const confirmed = window.confirm(
-      "개발용 PRO를 활성화할까요?\n\n실제 결제는 아직 진행되지 않습니다."
-    );
-
-    if (confirmed) {
-      onActivatePro();
-    }
+    onStartPayment(selectedPlan);
   };
 
   return (
@@ -2049,20 +2052,26 @@ function ProPage({ onClose, onActivatePro, isPro }) {
         </section>
 
         <section className="pro-price-section">
-          <div className="pro-plan-card">
+          <div
+            className={`pro-plan-card${selectedPlan === "monthly" ? " selected" : ""}`}
+            onClick={() => setSelectedPlan("monthly")}
+          >
             <div className="pro-plan-top">
               <div>
                 <span className="pro-plan-label">MONTHLY</span>
                 <h2>월 ₩3,900</h2>
               </div>
 
-              <span className="pro-plan-check">✓</span>
+              {selectedPlan === "monthly" && <span className="pro-plan-check">✓</span>}
             </div>
 
             <p>부담 없이 시작하는 PRO</p>
           </div>
 
-          <div className="pro-plan-card recommended">
+          <div
+            className={`pro-plan-card recommended${selectedPlan === "yearly" ? " selected" : ""}`}
+            onClick={() => setSelectedPlan("yearly")}
+          >
             <div className="pro-recommended">
               가장 추천
             </div>
@@ -2073,7 +2082,7 @@ function ProPage({ onClose, onActivatePro, isPro }) {
                 <h2>연 ₩27,900</h2>
               </div>
 
-              <span className="pro-plan-check">✓</span>
+              {selectedPlan === "yearly" && <span className="pro-plan-check">✓</span>}
             </div>
 
             <p>
@@ -2232,15 +2241,18 @@ function ProPage({ onClose, onActivatePro, isPro }) {
             <button
               className="pro-cta"
               onClick={handleActivate}
+              disabled={paymentStarting}
             >
               {isPro
                 ? "✓ PRO 이용 중"
+                : paymentStarting
+                ? "카드 등록창 여는 중..."
                 : "PRO 시작하기"}
             </button>
 
             {!isPro && (
               <small>
-                ※ 현재 개발 버전에서는 실제 결제가 진행되지 않습니다.
+                ※ 테스트 환경입니다. 실제로 카드가 등록되지만 결제는 청구되지 않습니다.
               </small>
             )}
           </div>
@@ -3403,6 +3415,44 @@ function AuthModal({ onClose }) {
   );
 }
 
+// Phase D: /billing/callback 리다이렉트 이후 진행 상태(카드 등록 처리 중 /
+// 구독 활성화 완료 / 실패)를 보여주는 오버레이입니다. AuthModal과 동일한
+// 오버레이 스타일(auth-modal-overlay)을 재사용합니다.
+function BillingStatusOverlay({ status, message, onClose }) {
+  return (
+    <div className="auth-modal-overlay" onClick={status === "processing" ? undefined : onClose}>
+      <div className="auth-modal" onClick={(event) => event.stopPropagation()}>
+        {status !== "processing" && (
+          <button className="auth-modal-close" onClick={onClose} aria-label="닫기">
+            ×
+          </button>
+        )}
+
+        {status === "processing" && (
+          <>
+            <h2>구독 처리 중...</h2>
+            <p className="auth-modal-message">카드 등록 결과를 확인하고 있어요. 잠시만 기다려주세요.</p>
+          </>
+        )}
+
+        {status === "success" && (
+          <>
+            <h2>🎉 구독이 활성화됐습니다!</h2>
+            <p className="auth-modal-message">이제 PRO 기능을 바로 이용하실 수 있어요.</p>
+          </>
+        )}
+
+        {status === "error" && (
+          <>
+            <h2>구독 처리에 실패했어요</h2>
+            <p className="auth-modal-error">{message || "잠시 후 다시 시도해주세요."}</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // Push Notification 초기화
   useEffect(() => {
@@ -3473,36 +3523,91 @@ function App() {
 
   const isPro = profile?.tier === "pro";
 
-  // ProPage의 handleActivate()가 confirm() 이후 호출하는 콜백입니다.
-  // mock 활성화(실제 결제 없음) 자체는 그대로 유지하되, Phase B부터는
-  // 브라우저(anon key)가 user_profiles.tier를 직접 update하지 않고
-  // 서버(POST /api/pro/activate-mock, service_role 키)를 거칩니다 -
-  // user_profiles의 UPDATE RLS 정책 자체를 없앴기 때문에 브라우저에서
-  // 직접 시도해도 이제는 거부됩니다. 새로고침해도(로그아웃하지 않는 한)
-  // 유지되는 것은 기존과 동일합니다.
-  const handleActivatePro = async () => {
+  // showPro를 여기로 옮겨뒀습니다(원래는 activeTab 등과 함께 아래쪽에
+  // 선언돼 있었음) - 바로 아래 /billing/callback 처리 useEffect가
+  // setShowPro를 마운트 직후에 호출해야 해서, 선언보다 먼저 참조되는
+  // TDZ 문제를 피하려면 이 순서가 필요합니다.
+  const [showPro, setShowPro] = useState(false);
+
+  // Phase D: 실제 토스페이먼츠 자동결제(빌링) 흐름. 카드 등록창은 브라우저를
+  // successUrl/failUrl로 실제 리다이렉트시키므로(팝업 아님), 이 함수는
+  // 리다이렉트가 일어나기 전까지만 실행됩니다 - 이후 처리는 아래 두
+  // useEffect(콜백 URL 파싱 + confirm-billing 호출)가 담당합니다.
+  const [paymentStarting, setPaymentStarting] = useState(false);
+  const [billingStatus, setBillingStatus] = useState(null); // null | 'processing' | 'success' | 'error'
+  const [billingMessage, setBillingMessage] = useState("");
+  const [pendingBillingAuth, setPendingBillingAuth] = useState(null);
+
+  const handleStartPayment = async (plan) => {
     if (!session?.user?.id) {
-      alert("PRO 활성화는 로그인 후 이용할 수 있어요.");
+      alert("구독은 로그인 후 이용할 수 있어요.");
       setShowAuthModal(true);
       return;
     }
 
-    const response = await fetch("/api/pro/activate-mock", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    const data = await response.json().catch(() => null);
+    setPaymentStarting(true);
+    try {
+      const { customerKey } = await startBilling(plan, session.access_token);
+      const tossPayments = await loadTossPayments(import.meta.env.VITE_TOSS_CLIENT_KEY);
+      const payment = tossPayments.payment({ customerKey });
 
-    if (!response.ok || !data?.success) {
-      console.error("[왓츠트렌드] PRO 활성화 실패:", data?.message);
-      alert("PRO 활성화에 실패했어요. 잠시 후 다시 시도해주세요.");
-      return;
+      // successUrl/failUrl을 같은 경로로 통일하고, 아래 useEffect가
+      // authKey(성공)/message(실패) 중 무엇이 붙어왔는지로 구분합니다.
+      await payment.requestBillingAuth({
+        method: "CARD",
+        successUrl: `${window.location.origin}/billing/callback`,
+        failUrl: `${window.location.origin}/billing/callback`,
+        customerEmail: session.user.email,
+      });
+    } catch (error) {
+      console.error("[왓츠트렌드] 카드 등록 시작 실패:", error.message);
+      alert(error.message || "카드 등록을 시작하지 못했어요.");
+    } finally {
+      setPaymentStarting(false);
     }
-
-    setProfile((prev) => ({ ...prev, tier: "pro" }));
-    alert("🎉 PRO가 활성화되었습니다!");
-    setShowPro(false);
   };
+
+  // /billing/callback으로 돌아왔을 때 URL을 1회만 파싱합니다(기존
+  // trend/keyword 쿼리 파라미터 처리 useEffect와 동일한 패턴). 이 시점에
+  // session이 아직 준비되지 않았을 수 있어(getSession()이 비동기), 여기서는
+  // authKey/customerKey만 저장해두고 실제 confirm-billing 호출은 아래
+  // 별도 useEffect가 session이 준비된 뒤에 수행합니다.
+  useEffect(() => {
+    if (window.location.pathname !== "/billing/callback") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const authKey = params.get("authKey");
+    const customerKey = params.get("customerKey");
+    const failMessage = params.get("message");
+
+    window.history.replaceState({}, "", "/");
+    setShowPro(true);
+
+    if (authKey && customerKey) {
+      setBillingStatus("processing");
+      setPendingBillingAuth({ authKey, customerKey });
+    } else if (failMessage) {
+      setBillingStatus("error");
+      setBillingMessage(failMessage);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pendingBillingAuth || !session?.access_token) return;
+
+    const { authKey, customerKey } = pendingBillingAuth;
+    setPendingBillingAuth(null);
+
+    confirmBilling({ authKey, customerKey }, session.access_token)
+      .then((data) => {
+        setProfile((prev) => ({ ...prev, tier: data.tier }));
+        setBillingStatus("success");
+      })
+      .catch((error) => {
+        setBillingStatus("error");
+        setBillingMessage(error.message || "구독 확정에 실패했어요.");
+      });
+  }, [pendingBillingAuth, session?.access_token]);
 
   const handleLogout = async () => {
     const confirmed = window.confirm("로그아웃 하시겠어요?");
@@ -3512,7 +3617,6 @@ function App() {
 
   const [activeTab, setActiveTab] = useState("home");
   const [selectedTrend, setSelectedTrend] = useState(null);
-  const [showPro, setShowPro] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState(() => {
@@ -3746,7 +3850,8 @@ function App() {
           <ProPage
             onClose={() => setShowPro(false)}
             isPro={isPro}
-            onActivatePro={handleActivatePro}
+            onStartPayment={handleStartPayment}
+            paymentStarting={paymentStarting}
           />
         ) : selectedTrend ? (
           <DetailPage
@@ -3828,6 +3933,17 @@ function App() {
       </nav>
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+
+      {billingStatus && (
+        <BillingStatusOverlay
+          status={billingStatus}
+          message={billingMessage}
+          onClose={() => {
+            setBillingStatus(null);
+            setBillingMessage("");
+          }}
+        />
+      )}
     </div>
   );
 }

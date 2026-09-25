@@ -17,6 +17,18 @@ import { getNaverTrendGrowth } from "./naverTrendGrowth.js";
 import { getOrCreateNaverExplanation } from "./naverTrendExplanation.js";
 import { getCompositeTrendScore } from "./compositeTrendScore.js";
 import { getSupabaseClient } from "./supabase.js";
+import { issueBillingKey, chargeBillingKey } from "./tossPayments.js";
+import {
+  PLAN_PRICES,
+  PLAN_ORDER_NAMES,
+  generateOrderId,
+  getSubscriptionByUserId,
+  upsertPendingSubscription,
+  activateSubscription,
+  markSubscriptionPastDue,
+  cancelSubscriptionByUserId,
+} from "./subscriptions.js";
+import { chargeSubscriptionsDueForRenewal, isRenewalRunning } from "./subscriptionRenewal.js";
 import {
   listTrackedKeywords,
   addTrackedKeyword,
@@ -875,7 +887,7 @@ async function requireSupabaseUser(req, res) {
     return null;
   }
 
-  return { client, userId: data.user.id };
+  return { client, userId: data.user.id, email: data.user.email };
 }
 
 app.post("/api/pro/activate-mock", async (req, res) => {
@@ -912,6 +924,169 @@ app.post("/api/pro/deactivate-mock", async (req, res) => {
   }
 
   res.json({ success: true, tier: "free" });
+});
+
+// Phase D: 토스페이먼츠 자동결제(빌링) 구독 흐름.
+//
+// customerKey는 클라이언트가 정하지 않고 항상 서버가 인증된 userId로부터
+// 결정론적으로 만듭니다(user_<uuid에서 하이픈 제거>) - 이렇게 하면
+// confirm-billing에서 "타인의 customerKey를 도용"하는 경로 자체가
+// 구조적으로 없습니다(Phase B/C-1의 "본인 id만 사용" 패턴과 동일한 원칙).
+function customerKeyForUser(userId) {
+  return `user_${userId.replace(/-/g, "")}`;
+}
+
+app.post("/api/subscription/start-billing", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
+  const plan = req.body?.plan;
+  if (plan !== "monthly" && plan !== "yearly") {
+    res.status(400).json({ success: false, message: "plan은 monthly 또는 yearly여야 합니다." });
+    return;
+  }
+
+  try {
+    const customerKey = customerKeyForUser(auth.userId);
+    await upsertPendingSubscription({ userId: auth.userId, customerKey, plan });
+    res.json({ success: true, customerKey });
+  } catch (error) {
+    console.error("Subscription start-billing 요청 실패:", error.message);
+    res.status(502).json({ success: false, message: "구독 시작에 실패했어요." });
+  }
+});
+
+app.post("/api/subscription/confirm-billing", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
+  const authKey = typeof req.body?.authKey === "string" ? req.body.authKey : "";
+  const customerKey = typeof req.body?.customerKey === "string" ? req.body.customerKey : "";
+
+  if (!authKey || !customerKey) {
+    res.status(400).json({ success: false, message: "authKey와 customerKey가 필요합니다." });
+    return;
+  }
+
+  // 핵심 검증: 요청에 담긴 customerKey가 본인 것과 일치하는지 확인합니다 -
+  // 타인의 customerKey를 넣어 호출해도 여기서 거부되므로 도용이 불가능합니다.
+  const expectedCustomerKey = customerKeyForUser(auth.userId);
+  if (customerKey !== expectedCustomerKey) {
+    res.status(403).json({ success: false, message: "본인 명의의 결제만 진행할 수 있습니다." });
+    return;
+  }
+
+  try {
+    const subscription = await getSubscriptionByUserId(auth.userId);
+    if (!subscription || subscription.customer_key !== expectedCustomerKey) {
+      res.status(400).json({ success: false, message: "구독 시작 절차(start-billing)가 먼저 필요합니다." });
+      return;
+    }
+
+    const issueResult = await issueBillingKey({ authKey, customerKey });
+    if (!issueResult.success) {
+      console.error("빌링키 발급 실패:", issueResult.message || issueResult.error);
+      await markSubscriptionPastDue({ userId: auth.userId, customerKey });
+      res.status(502).json({ success: false, message: "카드 등록에 실패했어요.", detail: issueResult.message });
+      return;
+    }
+
+    const billingKey = issueResult.data.billingKey;
+    const plan = subscription.plan;
+
+    const chargeResult = await chargeBillingKey({
+      billingKey,
+      customerKey,
+      amount: PLAN_PRICES[plan],
+      orderId: generateOrderId(auth.userId),
+      orderName: PLAN_ORDER_NAMES[plan],
+      customerEmail: auth.email,
+    });
+
+    if (!chargeResult.success) {
+      console.error("자동결제 첫 승인 실패:", chargeResult.message || chargeResult.error);
+      await markSubscriptionPastDue({ userId: auth.userId, customerKey });
+      res.status(502).json({ success: false, message: "결제 승인에 실패했어요.", detail: chargeResult.message });
+      return;
+    }
+
+    const updatedSubscription = await activateSubscription({ userId: auth.userId, customerKey, billingKey, plan });
+
+    const { error: tierError } = await auth.client
+      .from("user_profiles")
+      .update({ tier: "pro" })
+      .eq("id", auth.userId);
+
+    if (tierError) {
+      console.error("결제는 성공했지만 tier 반영 실패:", tierError.message);
+    }
+
+    res.json({ success: true, tier: "pro", subscription: updatedSubscription });
+  } catch (error) {
+    console.error("Subscription confirm-billing 요청 실패:", error.message);
+    res.status(502).json({ success: false, message: "구독 확정 처리에 실패했어요." });
+  }
+});
+
+app.post("/api/subscription/cancel", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
+  try {
+    const canceled = await cancelSubscriptionByUserId(auth.userId);
+    if (!canceled) {
+      res.status(404).json({ success: false, message: "활성 구독이 없습니다." });
+      return;
+    }
+    res.json({ success: true, subscription: canceled });
+  } catch (error) {
+    console.error("Subscription cancel 요청 실패:", error.message);
+    res.status(502).json({ success: false, message: "구독 해지에 실패했어요." });
+  }
+});
+
+app.get("/api/subscription/status", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
+  try {
+    const subscription = await getSubscriptionByUserId(auth.userId);
+    res.json({ success: true, subscription });
+  } catch (error) {
+    console.error("Subscription status 요청 실패:", error.message);
+    res.status(502).json({ success: false, message: "구독 상태를 가져오지 못했어요." });
+  }
+});
+
+// 갱신 스케줄러 트리거 - /api/scheduler/trigger와 동일한 패턴(시크릿 헤더,
+// 미설정/불일치 구분 없이 401, 실행 중이면 409, 202 즉시 응답 후 백그라운드
+// 실행)이지만 별도 시크릿(SUBSCRIPTION_RENEWAL_SECRET)을 씁니다 - 트렌드
+// 수집 스케줄러와 결제 재청구는 각각 별개로 켜고 끌 수 있어야 하므로
+// 시크릿을 공유하지 않습니다.
+app.post("/api/subscription/process-renewals", (req, res) => {
+  const providedSecret = req.headers["x-subscription-renewal-secret"];
+  const expectedSecret = process.env.SUBSCRIPTION_RENEWAL_SECRET;
+
+  if (
+    !expectedSecret ||
+    typeof providedSecret !== "string" ||
+    providedSecret !== expectedSecret
+  ) {
+    res.status(401).json({ success: false, message: "인증에 실패했습니다." });
+    return;
+  }
+
+  if (isRenewalRunning()) {
+    res.status(409).json({ success: false, message: "이미 실행 중입니다." });
+    return;
+  }
+
+  const startedAt = new Date().toISOString();
+  res.status(202).json({ status: "accepted", startedAt });
+
+  chargeSubscriptionsDueForRenewal().catch((error) => {
+    console.error("Subscription renewal 실행 실패(응답에는 이미 영향 없음):", error.message);
+  });
 });
 
 // 4-1단계: spin-down 배포 환경(무료 티어 등, idle 시 프로세스가 내려갔다

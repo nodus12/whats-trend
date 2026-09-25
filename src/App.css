@@ -4659,11 +4659,21 @@ svg {
   border: 1px solid #292a31;
   border-radius: 21px;
   background: #111216;
+  cursor: pointer;
 }
 
 .pro-plan-card.recommended {
   border-color: rgba(255, 86, 157, 0.3);
   background: radial-gradient(circle at 100% 0%, rgba(255, 83, 157, 0.08), transparent 45%), #111216;
+}
+
+/* Phase D: 플랜 선택 상태 표시 - 클릭 가능해진 카드 중 선택된 쪽만 강조 */
+.pro-plan-card.selected {
+  border-color: #fff;
+}
+
+.pro-plan-card.recommended.selected {
+  border-color: #ff5b9e;
 }
 
 .recommended-badge {

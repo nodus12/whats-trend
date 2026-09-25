@@ -56,3 +56,15 @@ services:
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
+      # Phase D: 토스페이먼츠 자동결제(빌링). TOSS_CLIENT_KEY(서버)/
+      # VITE_TOSS_CLIENT_KEY(브라우저 SDK, 빌드 시점에 번들에 박힘)는
+      # 같은 "API 개별 연동 키" 값이고, TOSS_SECRET_KEY는 서버 전용입니다.
+      - key: TOSS_CLIENT_KEY
+        sync: false
+      - key: TOSS_SECRET_KEY
+        sync: false
+      - key: VITE_TOSS_CLIENT_KEY
+        sync: false
+      # SCHEDULER_SECRET과 독립적인 별도 시크릿 - 결제 재청구 트리거 전용.
+      - key: SUBSCRIPTION_RENEWAL_SECRET
+        sync: false

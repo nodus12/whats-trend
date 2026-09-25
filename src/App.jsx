@@ -264,6 +264,71 @@ function normalizeApiTrend(apiTrend, query) {
   };
 }
 
+// 6-1단계: HOT/RISING/NEXT 후보 풀을 만들 때 쓰는 고정 카테고리 세트입니다.
+// HomePage의 "FOR YOU" 섹션이 쓰는 개인화 카테고리(관심사 없으면
+// ["패션","뷰티","여행","테크"], 4개 병렬 호출)와는 별개로, 항상 같은
+// 일반 카테고리를 씁니다 - categories 배열(위)에 실제로 존재하는 문자열만
+// 사용합니다.
+//
+// 2개만 쓰는 이유(실측 기반 판단): 처음엔 4개로 만들었는데, FOR YOU의
+// 4개와 합쳐 홈 진입 시 총 8개의 /api/trends를 동시에 호출하게 되어
+// 크롬의 오리진당 동시 연결 제한(6개)을 넘겨버렸습니다. 그 결과 뒤로
+// 밀린 요청이 앞 요청이 끝날 때까지(각 /api/trends 호출 자체가 RSS
+// 수집 때문에 ~10초 이상 걸림) 대기하면서 실측 24초까지 로딩이
+// 걸리는 걸 Playwright로 직접 확인했습니다. 2개로 줄이면 FOR YOU의
+// 4개와 합쳐 정확히 6개라 전부 진짜 병렬로 실행되어 첫 배치(~11-12초)
+// 안에 끝납니다 - 그래도 느린 편이라 캐싱 등 근본적인 개선은 별도
+// 후속 과제로 남겨둡니다.
+const HOME_FEED_CATEGORIES = ["맛집/푸드", "라이프"];
+
+// 6-1단계: HOT/RISING/NEXT 분류 로직을 이 함수 한 곳에 모아둡니다. 지금은
+// mentionCount/growthRate만 쓰지만, 추후 multiSignalScore/
+// earlySignalScore/네이버 검색 트렌드 등을 candidates 항목에 필드로 추가로
+// 실어 보내고, 이 함수의 정렬 기준만 확장하면 새 신호를 반영할 수 있도록
+// 설계했습니다(다른 곳을 고칠 필요 없음).
+//
+// 각 섹션 최대 3개, 부족하면 있는 만큼만 반환합니다(개수를 억지로 채우지
+// 않음 - Part 4의 "친화적 빈 상태" 처리와 짝을 이룹니다). 한 트렌드가
+// 여러 섹션에 중복으로 뽑히지 않도록 already-picked id를 추적합니다.
+function classifyHomeFeedTrends(candidates) {
+  const used = new Set();
+
+  function take(sorted, max) {
+    const picked = [];
+    for (const trend of sorted) {
+      if (picked.length >= max) break;
+      if (used.has(trend.id)) continue;
+      picked.push(trend);
+      used.add(trend.id);
+    }
+    return picked;
+  }
+
+  // HOT: mentionCount(언급량) 상위.
+  const byMentionCount = [...candidates].sort(
+    (a, b) => (b.mentionCount ?? 0) - (a.mentionCount ?? 0)
+  );
+  const hot = take(byMentionCount, 3);
+
+  // RISING: growthRate가 있고 양수인 것 우선, growthRate 데이터가 없으면
+  // mentionCount 차순위로 보충(실측 결과 growthRate가 null인 경우가
+  // 많아서 이 보충 규칙이 실제로 자주 쓰임).
+  const byGrowth = [...candidates].sort((a, b) => {
+    const aPositive = a.growthRate !== null && a.growthRate > 0;
+    const bPositive = b.growthRate !== null && b.growthRate > 0;
+    if (aPositive && bPositive) return b.growthRate - a.growthRate;
+    if (aPositive) return -1;
+    if (bPositive) return 1;
+    return (b.mentionCount ?? 0) - (a.mentionCount ?? 0);
+  });
+  const rising = take(byGrowth, 3);
+
+  // NEXT: 위 두 섹션에 뽑히지 않은 나머지 중 mentionCount 상위.
+  const next = take(byMentionCount, 3);
+
+  return { hot, rising, next };
+}
+
 const affiliateProducts = [
   {
     id: "fashion-linen-shirt",
@@ -671,22 +736,10 @@ function OnboardingPage({ onComplete, onSkip }) {
   );
 }
 
-function HomePage({ trends, onSelectTrend, onExplore, isPro }) {
+function HomePage({ onSelectTrend, onExplore, isPro }) {
   const [personalizedTrends, setPersonalizedTrends] = useState([]);
   const [personalizedLoading, setPersonalizedLoading] = useState(false);
   const [personalizedError, setPersonalizedError] = useState(false);
-
-  const hotTrends = [
-    trends[1],
-    trends[3],
-    trends[0],
-  ];
-
-  const risingTrends = [
-    trends[2],
-    trends[5],
-    trends[4],
-  ];
 
   useEffect(() => {
     let cancelled = false;
@@ -766,9 +819,57 @@ function HomePage({ trends, onSelectTrend, onExplore, isPro }) {
     };
   }, []);
 
+  // 6-1단계: HOT/RISING/NEXT 후보 풀. FOR YOU 섹션과 같은 병렬 호출 +
+  // Promise.allSettled 패턴을 쓰되, 완전히 별개의 state/effect입니다(FOR
+  // YOU 쪽 로직은 위에서 전혀 건드리지 않았습니다) - 카테고리 중 일부가
+  // 실패하거나 빈 배열을 반환해도 나머지 성공한 카테고리의 결과만으로
+  // 후보 풀을 만들기 때문에, 개별 카테고리 실패가 전체를 막지 않습니다.
+  const [homeFeedCandidates, setHomeFeedCandidates] = useState([]);
+  const [homeFeedLoading, setHomeFeedLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchHomeFeedCandidates() {
+      setHomeFeedLoading(true);
+
+      const allResults = await Promise.allSettled(
+        HOME_FEED_CATEGORIES.map((cat) => fetchTrends(cat))
+      );
+
+      const successfulResults = allResults
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value);
+
+      const trendMap = new Map();
+      for (const result of successfulResults) {
+        if (result.trends) {
+          for (const trend of result.trends) {
+            const normalized = normalizeApiTrend(trend, result.query || "추천");
+            if (!trendMap.has(normalized.id)) {
+              trendMap.set(normalized.id, normalized);
+            }
+          }
+        }
+      }
+
+      if (!cancelled) {
+        setHomeFeedCandidates(Array.from(trendMap.values()));
+        setHomeFeedLoading(false);
+      }
+    }
+
+    fetchHomeFeedCandidates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const personalizedIds = new Set(personalizedTrends.map((t) => t.id));
-  const filteredHotTrends = hotTrends.filter((t) => !personalizedIds.has(t.id));
-  const filteredRisingTrends = risingTrends.filter((t) => !personalizedIds.has(t.id));
+  const homeFeedAfterDedup = homeFeedCandidates.filter((t) => !personalizedIds.has(t.id));
+  const { hot: hotTrends, rising: risingTrends, next: nextTrends } =
+    classifyHomeFeedTrends(homeFeedAfterDedup);
 
   const personalizationData = getPersonalizationData();
   const hasInterests = personalizationData.interests.categories.length > 0;
@@ -927,48 +1028,60 @@ function HomePage({ trends, onSelectTrend, onExplore, isPro }) {
           </div>
         </div>
 
+        {/* 6-1단계: HOT/RISING/NEXT 셋 다 같은 homeFeedLoading을 공유합니다
+            (한 번의 병렬 호출 결과를 셋으로 나눠 쓰는 구조라 로딩도 함께
+            끝남) - 로딩 중이 아닌데 해당 섹션 결과가 0개면 에러처럼 보이지
+            않는 친화적 빈 상태 문구를 보여줍니다(.monitoring-empty 재사용). */}
         <div className="home-hot-list">
-          {filteredHotTrends.map((trend, index) => (
-            <article
-              className={`home-hot-card ${
-                index === 0 ? "featured" : ""
-              }`}
-              key={trend.id}
-              onClick={() => onSelectTrend(trend)}
-            >
-              <div className="home-hot-number">
-                0{index + 1}
-              </div>
-
-              <div className="home-hot-main">
-                <div className="home-hot-top">
-                  <span>{trend.category}</span>
-
-                  <span className="home-status">
-                    {trend.stage}
-                  </span>
+          {homeFeedLoading ? (
+            <div className="monitoring-empty">불러오는 중...</div>
+          ) : hotTrends.length === 0 ? (
+            <div className="monitoring-empty">아직 표시할 트렌드가 없어요.</div>
+          ) : (
+            hotTrends.map((trend, index) => (
+              <article
+                className={`home-hot-card ${
+                  index === 0 ? "featured" : ""
+                }`}
+                key={trend.id}
+                onClick={() => onSelectTrend(trend)}
+              >
+                <div className="home-hot-number">
+                  0{index + 1}
                 </div>
 
-                <h3>{trend.title}</h3>
+                <div className="home-hot-main">
+                  <div className="home-hot-top">
+                    <span>{trend.category}</span>
 
-                <p>{trend.description}</p>
+                    <span className="home-status">
+                      {trend.stage}
+                    </span>
+                  </div>
 
-                <div className="home-growth">
-                  <strong>{formatGrowth(trend.growth)}</strong>
+                  <h3>{trend.title}</h3>
 
-                  <span>
-                    오늘 {trend.daily}
-                  </span>
+                  {trend.description && <p>{trend.description}</p>}
+
+                  <div className="home-growth">
+                    <strong>{formatGrowth(trend.growth)}</strong>
+
+                    {trend.daily && (
+                      <span>
+                        오늘 {trend.daily}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              <div className="home-hot-emoji">
-                {trend.emoji}
-              </div>
+                <div className="home-hot-emoji">
+                  {trend.emoji}
+                </div>
 
-              <ArrowIcon />
-            </article>
-          ))}
+                <ArrowIcon />
+              </article>
+            ))
+          )}
         </div>
       </section>
 
@@ -991,39 +1104,50 @@ function HomePage({ trends, onSelectTrend, onExplore, isPro }) {
         </div>
 
         <div className="home-rising-grid">
-          {filteredRisingTrends.map((trend) => (
-            <article
-              className="home-rising-card"
-              key={trend.id}
-              onClick={() => onSelectTrend(trend)}
-            >
-              <div className="rising-card-top">
-                <div className="rising-emoji">
-                  {trend.emoji}
+          {homeFeedLoading ? (
+            <div className="monitoring-empty">불러오는 중...</div>
+          ) : risingTrends.length === 0 ? (
+            <div className="monitoring-empty">아직 표시할 트렌드가 없어요.</div>
+          ) : (
+            risingTrends.map((trend) => (
+              <article
+                className="home-rising-card"
+                key={trend.id}
+                onClick={() => onSelectTrend(trend)}
+              >
+                <div className="rising-card-top">
+                  <div className="rising-emoji">
+                    {trend.emoji}
+                  </div>
+
+                  <span>{trend.category}</span>
                 </div>
 
-                <span>{trend.category}</span>
-              </div>
+                <h3>{trend.title}</h3>
 
-              <h3>{trend.title}</h3>
+                {trend.description && <p>{trend.description}</p>}
 
-              <p>{trend.description}</p>
+                <div className="rising-bottom">
+                  <strong>{formatGrowth(trend.growth)}</strong>
 
-              <div className="rising-bottom">
-                <strong>{formatGrowth(trend.growth)}</strong>
-
-                <span>
-                  {trend.daily}
-                </span>
-              </div>
-            </article>
-          ))}
+                  {trend.daily && (
+                    <span>
+                      {trend.daily}
+                    </span>
+                  )}
+                </div>
+              </article>
+            ))
+          )}
         </div>
       </section>
 
       {!isPro && <AdPlaceholder />}
 
-      {/* NEXT */}
+      {/* NEXT - 6-1단계: 하드코딩된 단일 카드 대신 실제 후보 풀에서
+          HOT/RISING에 안 뽑힌 나머지 상위 항목을 보여줍니다. 카드 UI는
+          새로 안 만들고 RISING과 동일한 카드(home-rising-card)를 그대로
+          재사용합니다. */}
       <section className="home-next-section">
         <div className="home-next-glow" />
 
@@ -1045,26 +1169,42 @@ function HomePage({ trends, onSelectTrend, onExplore, isPro }) {
           </div>
         </div>
 
-        <div className="home-next-card">
-          <div className="next-card-icon">
-            🗾
-          </div>
+        <div className="home-rising-grid">
+          {homeFeedLoading ? (
+            <div className="monitoring-empty">불러오는 중...</div>
+          ) : nextTrends.length === 0 ? (
+            <div className="monitoring-empty">아직 표시할 트렌드가 없어요.</div>
+          ) : (
+            nextTrends.map((trend) => (
+              <article
+                className="home-rising-card"
+                key={trend.id}
+                onClick={() => onSelectTrend(trend)}
+              >
+                <div className="rising-card-top">
+                  <div className="rising-emoji">
+                    {trend.emoji}
+                  </div>
 
-          <div className="next-card-info">
-            <span>여행 · NEXT</span>
+                  <span>{trend.category}</span>
+                </div>
 
-            <h3>일본 소도시 여행</h3>
+                <h3>{trend.title}</h3>
 
-            <div className="next-card-stats">
-              <strong>+247%</strong>
-              <span>관심도 상승</span>
-            </div>
-          </div>
+                {trend.description && <p>{trend.description}</p>}
 
-          <div className="next-protection">
-            <span>NEXT</span>
-            <strong>매우 높음</strong>
-          </div>
+                <div className="rising-bottom">
+                  <strong>{formatGrowth(trend.growth)}</strong>
+
+                  {trend.daily && (
+                    <span>
+                      {trend.daily}
+                    </span>
+                  )}
+                </div>
+              </article>
+            ))
+          )}
         </div>
 
         <button
@@ -3866,7 +4006,6 @@ function App() {
           />
         ) : activeTab === "home" ? (
           <HomePage
-            trends={normalizedTrends}
             onSelectTrend={selectTrend}
             onExplore={goExplore}
             isPro={isPro}

@@ -66,6 +66,21 @@ import {
   isTrendMonitorRunning,
 } from "./trendMonitor.js";
 
+// 6-2단계: /api/trends 인메모리 캐시.
+//
+// 사전 확인 결과 - trendMonitor.js는 "AI" 키워드 하나만 10분 주기로
+// 감시하는 구조이고(runTrendMonitorCycle -> collectTrends(DEFAULT_TREND_QUERY)),
+// 그 결과를 어디에도 저장해두지 않고 checkTrendsAndNotify()에 바로
+// 넘기고 버립니다 - 즉 재사용 가능한 기존 캐시가 없었습니다(중복
+// 구현이 아님). collectTrends() 자체의 계산 로직은 전혀 건드리지
+// 않고, /api/trends 라우트 핸들러 앞에 캐시 레이어만 얹습니다.
+//
+// Render 무료 티어 규모를 고려해 Redis/DB 없이 순수 인메모리 Map으로
+// 충분합니다 - 재시작/spin-down 시 비워지는 것도 그대로 받아들입니다
+// (콜드 스타트 직후 첫 요청이 느린 건 과설계로 해결하지 않음).
+const TREND_CACHE_TTL_MS = 5 * 60 * 1000; // 5분
+const trendsCache = new Map(); // key: query 문자열 그대로, value: { data, cachedAt }
+
 // 18-4: Express 라우트가 등록되기 전에 SQLite를 먼저 초기화합니다.
 // (subscription/settings/trendHistory/dedupe 저장소가 모두 이 연결을 사용하므로,
 // 이 초기화가 끝나지 않은 상태에서 요청을 받으면 안 됩니다.)
@@ -555,6 +570,14 @@ app.get("/api/composite/trend-history", async (req, res) => {
 app.get("/api/trends", async (req, res) => {
   const query = typeof req.query.q === "string" ? req.query.q : "AI";
 
+  const cached = trendsCache.get(query);
+  if (cached && Date.now() - cached.cachedAt < TREND_CACHE_TTL_MS) {
+    console.log(`[Trends Cache] HIT "${query}" (${Math.round((Date.now() - cached.cachedAt) / 1000)}초 전 캐시)`);
+    res.json(cached.data);
+    return;
+  }
+  console.log(`[Trends Cache] MISS "${query}"`);
+
   try {
     const { items, trends } = await collectTrends(query);
 
@@ -562,18 +585,26 @@ app.get("/api/trends", async (req, res) => {
     // 응답 속도에 영향을 주지 않도록 결과를 기다리지 않고 백그라운드로 실행합니다.
     // 자동 감시(18-1)가 같은 순간 이미 알림 검사를 진행 중이면, 동일한 트렌드에
     // 대해 두 검사가 겹쳐 중복 발송될 수 있으므로 이번 요청에서는 건너뜁니다.
+    // 6-2단계: 캐시 HIT일 때는 이 블록 자체를 안 타므로 알림 검사도 자동으로
+    // 건너뜁니다 - 트렌드 데이터가 그대로인데 "방금 급상승했는지"를 매번
+    // 다시 검사할 필요가 없기 때문입니다(중복 실행 방지, dedup 로직에
+    // 불필요한 부담을 주지 않기 위함).
     if (!isTrendMonitorRunning()) {
       checkTrendsAndNotify(trends).catch((error) => {
         console.error("Trend push check failed:", error.message);
       });
     }
 
-    res.json({
+    const responseData = {
       success: true,
       query: query.trim() || "AI",
       count: items.length,
       trends,
-    });
+    };
+
+    trendsCache.set(query, { data: responseData, cachedAt: Date.now() });
+
+    res.json(responseData);
   } catch (error) {
     console.error("Trend aggregation request failed:", error.message);
 

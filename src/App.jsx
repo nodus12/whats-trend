@@ -1690,16 +1690,16 @@ function ProfilePage({ onOpenPro, onOpenNotifications, isPro, session }) {
         <div className="pro-price-preview">
           <div className="price-option">
             <span>월간</span>
-            <strong>₩5,900</strong>
+            <strong>₩3,900</strong>
             <small>/월</small>
           </div>
 
           <div className="price-option recommended">
             <div className="recommended-label">추천</div>
             <span>연간</span>
-            <strong>₩39,900</strong>
+            <strong>₩27,900</strong>
             <small>/년</small>
-            <em>월 ₩3,325</em>
+            <em>월 ₩2,325</em>
           </div>
         </div>
 
@@ -2053,7 +2053,7 @@ function ProPage({ onClose, onActivatePro, isPro }) {
             <div className="pro-plan-top">
               <div>
                 <span className="pro-plan-label">MONTHLY</span>
-                <h2>월 ₩5,900</h2>
+                <h2>월 ₩3,900</h2>
               </div>
 
               <span className="pro-plan-check">✓</span>
@@ -2070,14 +2070,14 @@ function ProPage({ onClose, onActivatePro, isPro }) {
             <div className="pro-plan-top">
               <div>
                 <span className="pro-plan-label">YEARLY</span>
-                <h2>연 ₩39,900</h2>
+                <h2>연 ₩27,900</h2>
               </div>
 
               <span className="pro-plan-check">✓</span>
             </div>
 
             <p>
-              월 환산 <strong>₩3,325</strong>
+              월 환산 <strong>₩2,325</strong>
             </p>
           </div>
         </section>

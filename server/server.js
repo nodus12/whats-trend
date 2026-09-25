@@ -197,7 +197,14 @@ app.get("/api/youtube/trend", async (req, res) => {
   }
 });
 
+// Phase C-2: 아래 트렌드 조회 8개 엔드포인트는 로그인만 되어 있으면
+// 누구나 호출 가능합니다(PRO 여부는 무관 - tier 차등은 /api/keywords의
+// 개수 제한에만 적용됩니다, Phase C-1 참고). requireSupabaseUser()는
+// Phase B에서 만든 헬퍼를 그대로 재사용합니다.
 app.get("/api/youtube/trend-growth", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {
@@ -267,6 +274,9 @@ app.get("/api/youtube/trend-growth", async (req, res) => {
 // 범위에 포함하지 않습니다. calculateTrendScore()는 위에서 이미 import한
 // (line 8) youtubeTrendGrowth.js의 것을 그대로 재사용합니다(복제하지 않음).
 app.get("/api/news/trend-growth", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {
@@ -353,6 +363,9 @@ app.get("/api/news/trend-growth", async (req, res) => {
 // 형태로 반환하므로, 이 라우트는 그 경우에도 HTTP 200을 유지합니다(요청
 // 지시사항의 Graceful Failure 요건).
 app.get("/api/naver/trend-growth", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {
@@ -409,6 +422,9 @@ app.get("/api/naver/trend-growth", async (req, res) => {
 // throw하고, 세 소스 중 무엇이 죽어도(throw/error) 절대 throw하지 않으므로
 // (compositeTrendScore.js 참고) 이 라우트도 항상 HTTP 200을 유지합니다.
 app.get("/api/trend-score", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {
@@ -445,6 +461,9 @@ app.get("/api/trend-score", async (req, res) => {
 // 전용이며(계산 없음), 데이터가 없으면 빈 배열을 반환합니다(에러 아님) -
 // trendHistoryApi.js의 각 함수가 이미 그렇게 동작합니다.
 app.get("/api/youtube/trend-history", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {
@@ -462,6 +481,9 @@ app.get("/api/youtube/trend-history", async (req, res) => {
 });
 
 app.get("/api/news/trend-history", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {
@@ -479,6 +501,9 @@ app.get("/api/news/trend-history", async (req, res) => {
 });
 
 app.get("/api/naver/trend-history", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {
@@ -496,6 +521,9 @@ app.get("/api/naver/trend-history", async (req, res) => {
 });
 
 app.get("/api/composite/trend-history", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
   if (!query) {

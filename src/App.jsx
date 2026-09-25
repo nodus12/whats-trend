@@ -3059,10 +3059,10 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
         // /api/trend-score 쪽(소스 단위 가중치가 정규화된 값)을 그대로
         // 신뢰하고 덮어쓰지 않습니다.
         const [scoreResult, ytResult, newsResult, naverResult] = await Promise.allSettled([
-          fetchTrendScore(keyword),
-          fetchYoutubeTrendGrowth(keyword),
-          fetchNewsTrendGrowth(keyword),
-          fetchNaverTrendGrowth(keyword),
+          fetchTrendScore(keyword, accessToken),
+          fetchYoutubeTrendGrowth(keyword, accessToken),
+          fetchNewsTrendGrowth(keyword, accessToken),
+          fetchNaverTrendGrowth(keyword, accessToken),
         ]);
 
         if (cancelled) return;
@@ -3103,10 +3103,10 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
       setHistoriesLoading(true);
 
       const [yt, news, naver, composite] = await Promise.allSettled([
-        fetchYoutubeHistory(keyword),
-        fetchNewsHistory(keyword),
-        fetchNaverHistory(keyword),
-        fetchCompositeHistory(keyword),
+        fetchYoutubeHistory(keyword, accessToken),
+        fetchNewsHistory(keyword, accessToken),
+        fetchNaverHistory(keyword, accessToken),
+        fetchCompositeHistory(keyword, accessToken),
       ]);
 
       if (cancelled) return;
@@ -3134,7 +3134,7 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedKeyword]);
+  }, [selectedKeyword, accessToken]);
 
   // Phase C: 비로그인 상태면 대시보드 대신 로그인 유도 화면만 보여줍니다.
   // 기존 대시보드 레이아웃(카드/그래프)은 그대로 두고 이 컴포넌트

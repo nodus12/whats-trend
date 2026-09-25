@@ -45,8 +45,13 @@ export async function deleteKeyword(id, token) {
   });
 }
 
-export async function fetchTrendScore(keyword) {
-  const response = await fetch(`/api/trend-score?q=${encodeURIComponent(keyword)}`);
+// Phase C-2: 이 아래 트렌드 조회 8개 엔드포인트도 로그인 필수로
+// 바뀌어서, /api/keywords와 동일한 패턴으로 token을 받아 Authorization
+// 헤더에 실어 보냅니다.
+export async function fetchTrendScore(keyword, token) {
+  const response = await fetch(`/api/trend-score?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const data = await response.json().catch(() => null);
 
   if (!response.ok || !data) {
@@ -64,30 +69,44 @@ export async function fetchTrendScore(keyword) {
 // 내부적으로 이 라우트들을 거치지 않고 계산 함수를 직접 호출하므로
 // explanation을 만들지 않습니다 - 그래서 소스별 explanation은 반드시 이
 // 개별 엔드포인트에서만 얻을 수 있습니다.
-export async function fetchYoutubeTrendGrowth(keyword) {
-  return getJson(`/api/youtube/trend-growth?q=${encodeURIComponent(keyword)}`);
+export async function fetchYoutubeTrendGrowth(keyword, token) {
+  return getJson(`/api/youtube/trend-growth?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export async function fetchNewsTrendGrowth(keyword) {
-  return getJson(`/api/news/trend-growth?q=${encodeURIComponent(keyword)}`);
+export async function fetchNewsTrendGrowth(keyword, token) {
+  return getJson(`/api/news/trend-growth?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export async function fetchNaverTrendGrowth(keyword) {
-  return getJson(`/api/naver/trend-growth?q=${encodeURIComponent(keyword)}`);
+export async function fetchNaverTrendGrowth(keyword, token) {
+  return getJson(`/api/naver/trend-growth?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export async function fetchYoutubeHistory(keyword) {
-  return getJson(`/api/youtube/trend-history?q=${encodeURIComponent(keyword)}`);
+export async function fetchYoutubeHistory(keyword, token) {
+  return getJson(`/api/youtube/trend-history?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export async function fetchNewsHistory(keyword) {
-  return getJson(`/api/news/trend-history?q=${encodeURIComponent(keyword)}`);
+export async function fetchNewsHistory(keyword, token) {
+  return getJson(`/api/news/trend-history?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export async function fetchNaverHistory(keyword) {
-  return getJson(`/api/naver/trend-history?q=${encodeURIComponent(keyword)}`);
+export async function fetchNaverHistory(keyword, token) {
+  return getJson(`/api/naver/trend-history?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export async function fetchCompositeHistory(keyword) {
-  return getJson(`/api/composite/trend-history?q=${encodeURIComponent(keyword)}`);
+export async function fetchCompositeHistory(keyword, token) {
+  return getJson(`/api/composite/trend-history?q=${encodeURIComponent(keyword)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }

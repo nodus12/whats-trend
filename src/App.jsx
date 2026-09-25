@@ -2941,13 +2941,18 @@ function TrendHistoryChart({ title, data, color }) {
   );
 }
 
-function KeywordDashboardPage() {
+// Phase C: 키워드 모니터링은 로그인 필수 + 소유자별 격리로 바뀌어서,
+// 이 컴포넌트는 이제 App()의 session/isPro를 props로 받습니다. session이
+// 없으면(비로그인) 아래에서 대시보드 대신 로그인 유도 화면을 반환합니다.
+function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
   const [keywords, setKeywords] = useState([]);
   const [keywordsLoading, setKeywordsLoading] = useState(true);
   const [keywordsError, setKeywordsError] = useState("");
   const [newKeyword, setNewKeyword] = useState("");
   const [adding, setAdding] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [limitError, setLimitError] = useState("");
+  const accessToken = session?.access_token;
 
   const [scoreData, setScoreData] = useState(null);
   const [scoreLoading, setScoreLoading] = useState(false);
@@ -2972,11 +2977,13 @@ function KeywordDashboardPage() {
   );
 
   const loadKeywords = async () => {
+    if (!accessToken) return;
+
     setKeywordsLoading(true);
     setKeywordsError("");
 
     try {
-      const data = await fetchKeywords();
+      const data = await fetchKeywords(accessToken);
       setKeywords(data.keywords || []);
     } catch {
       setKeywordsError("키워드 목록을 불러오지 못했어요.");
@@ -2986,29 +2993,40 @@ function KeywordDashboardPage() {
   };
 
   useEffect(() => {
-    loadKeywords();
-  }, []);
+    if (accessToken) {
+      loadKeywords();
+    }
+  }, [accessToken]);
 
   const handleAddKeyword = async (event) => {
     event.preventDefault();
     const trimmed = newKeyword.trim();
-    if (!trimmed) return;
+    if (!trimmed || !accessToken) return;
 
     setAdding(true);
+    setLimitError("");
     try {
-      await addKeyword(trimmed);
+      await addKeyword(trimmed, accessToken);
       setNewKeyword("");
       await loadKeywords();
     } catch (error) {
-      alert(error.message || "키워드를 추가하지 못했어요.");
+      // Phase C: 무료 플랜 3개 제한(403)은 alert 대신 PRO 유도 배너로
+      // 보여줍니다 - 그 외 실패는 기존처럼 alert.
+      if (error.status === 403) {
+        setLimitError(error.message || "무료 플랜은 키워드 3개까지 등록 가능합니다");
+      } else {
+        alert(error.message || "키워드를 추가하지 못했어요.");
+      }
     } finally {
       setAdding(false);
     }
   };
 
   const handleDeleteKeyword = async (id) => {
+    if (!accessToken) return;
+
     try {
-      await deleteKeyword(id);
+      await deleteKeyword(id, accessToken);
       if (selectedId === id) {
         setSelectedId(null);
       }
@@ -3118,6 +3136,32 @@ function KeywordDashboardPage() {
     };
   }, [selectedKeyword]);
 
+  // Phase C: 비로그인 상태면 대시보드 대신 로그인 유도 화면만 보여줍니다.
+  // 기존 대시보드 레이아웃(카드/그래프)은 그대로 두고 이 컴포넌트
+  // 안에서만 분기합니다 - 라우팅 구조 변경 없음.
+  if (!session?.user?.id) {
+    return (
+      <div className="content monitoring-page">
+        <section className="monitoring-header">
+          <span className="section-label">MONITORING</span>
+          <h1>
+            키워드
+            <br />
+            <span>모니터링</span>
+          </h1>
+          <p>감시할 키워드를 등록하고, 소스별 트렌드 점수 변화를 확인하세요.</p>
+        </section>
+
+        <section className="monitoring-section">
+          <div className="monitoring-login-prompt">
+            <p>키워드 모니터링은 로그인 후 이용할 수 있어요.</p>
+            <button onClick={onRequireLogin}>로그인</button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="content monitoring-page">
       <section className="monitoring-header">
@@ -3142,6 +3186,17 @@ function KeywordDashboardPage() {
             {adding ? "추가 중..." : "추가"}
           </button>
         </form>
+
+        <p className="monitoring-usage">
+          {isPro ? "PRO · 키워드 무제한" : `${activeKeywords.length}/3개 사용 중`}
+        </p>
+
+        {limitError && (
+          <div className="monitoring-limit-banner">
+            <p>{limitError} PRO로 업그레이드하시겠어요?</p>
+            <button onClick={onOpenPro}>PRO 보기</button>
+          </div>
+        )}
 
         {keywordsLoading ? (
           <div className="monitoring-empty">키워드 목록을 불러오는 중...</div>
@@ -3733,7 +3788,12 @@ function App() {
             onUpdateSettings={updateNotificationSettings}
           />
         ) : activeTab === "monitoring" ? (
-          <KeywordDashboardPage />
+          <KeywordDashboardPage
+            session={session}
+            isPro={isPro}
+            onOpenPro={() => setShowPro(true)}
+            onRequireLogin={() => setShowAuthModal(true)}
+          />
         ) : activeTab === "profile" ? (
           <ProfilePage
             onOpenPro={() => setShowPro(true)}

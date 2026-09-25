@@ -6551,6 +6551,65 @@ svg {
   color: #ff5c5c;
 }
 
+/* Phase C: 로그인 유도 화면, 사용량 표시, 무료 플랜 개수 제한 배너 */
+.monitoring-login-prompt {
+  padding: 32px 24px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  color: #ccc;
+  font-size: 14px;
+  text-align: center;
+}
+
+.monitoring-login-prompt p {
+  margin: 0 0 16px;
+}
+
+.monitoring-login-prompt button {
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: none;
+  background: #fff;
+  color: #080808;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.monitoring-usage {
+  margin: 0 0 12px;
+  color: #999;
+  font-size: 13px;
+}
+
+.monitoring-limit-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 209, 92, 0.35);
+  background: rgba(255, 209, 92, 0.08);
+  color: #ffd15c;
+  font-size: 13px;
+}
+
+.monitoring-limit-banner p {
+  margin: 0;
+}
+
+.monitoring-limit-banner button {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: none;
+  background: #ffd15c;
+  color: #201a05;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .composite-score-card {
   display: flex;
   flex-direction: column;

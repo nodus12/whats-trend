@@ -8,26 +8,41 @@ async function getJson(url, options) {
 
   if (!response.ok || !data || data.success === false) {
     const message = data?.message || "요청을 처리하지 못했어요.";
-    throw new Error(message);
+    const error = new Error(message);
+    // Phase C: 무료 플랜 개수 제한(403)처럼 호출부가 메시지가 아니라
+    // status로 분기해야 하는 경우가 생겨서 붙였습니다 - 기존 호출부는
+    // error.message만 쓰므로 이 필드가 추가돼도 영향 없습니다.
+    error.status = response.status;
+    throw error;
   }
 
   return data;
 }
 
-export async function fetchKeywords() {
-  return getJson("/api/keywords");
+// Phase C: /api/keywords가 로그인 필수로 바뀌면서 세 함수 모두 Supabase
+// 세션의 access_token을 받아 Authorization 헤더에 실어 보내야 합니다.
+export async function fetchKeywords(token) {
+  return getJson("/api/keywords", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export async function addKeyword(keyword) {
+export async function addKeyword(keyword, token) {
   return getJson("/api/keywords", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({ keyword }),
   });
 }
 
-export async function deleteKeyword(id) {
-  return getJson(`/api/keywords/${id}`, { method: "DELETE" });
+export async function deleteKeyword(id, token) {
+  return getJson(`/api/keywords/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
 export async function fetchTrendScore(keyword) {

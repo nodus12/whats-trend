@@ -21,6 +21,7 @@ import {
   listTrackedKeywords,
   addTrackedKeyword,
   deactivateTrackedKeyword,
+  countActiveTrackedKeywords,
 } from "./trackedKeywords.js";
 import {
   runScheduledCollection,
@@ -697,9 +698,17 @@ app.post("/api/push/send-test", async (req, res) => {
 
 // 3-4단계: tracked_keywords 관리용 최소 CRUD 엔드포인트. 이 테이블에 값을
 // 넣을 다른 방법이 없어서 추가합니다.
+//
+// Phase C: 세 라우트 모두 requireSupabaseUser()로 로그인을 필수로 바꿨고
+// (Phase B에서 만든 헬퍼를 그대로 재사용, 아래 정의는 함수 선언이라
+// 호이스팅되므로 이 위치에서 먼저 써도 됩니다), 본인 소유 키워드만
+// 조회/삭제할 수 있습니다. POST는 추가로 무료 플랜 3개 제한을 검사합니다.
 app.get("/api/keywords", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   try {
-    const keywords = await listTrackedKeywords();
+    const keywords = await listTrackedKeywords(auth.userId);
     res.json({ success: true, keywords });
   } catch (error) {
     console.error("Keyword list request failed:", error.message);
@@ -712,6 +721,9 @@ app.get("/api/keywords", async (req, res) => {
 });
 
 app.post("/api/keywords", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const keyword = typeof req.body?.keyword === "string" ? req.body.keyword.trim() : "";
 
   if (!keyword) {
@@ -723,7 +735,33 @@ app.post("/api/keywords", async (req, res) => {
   }
 
   try {
-    const added = await addTrackedKeyword(keyword);
+    const { data: profile, error: profileError } = await auth.client
+      .from("user_profiles")
+      .select("tier")
+      .eq("id", auth.userId)
+      .single();
+
+    if (profileError) {
+      console.error("Keyword add tier lookup failed:", profileError.message);
+      res.status(502).json({
+        success: false,
+        message: "키워드를 등록하지 못했습니다.",
+      });
+      return;
+    }
+
+    if (profile?.tier !== "pro") {
+      const activeCount = await countActiveTrackedKeywords(auth.userId);
+      if (activeCount >= 3) {
+        res.status(403).json({
+          success: false,
+          message: "무료 플랜은 키워드 3개까지 등록 가능합니다",
+        });
+        return;
+      }
+    }
+
+    const added = await addTrackedKeyword(auth.userId, keyword);
     res.status(201).json({ success: true, keyword: added });
   } catch (error) {
     if (error.code === "keyword_already_exists") {
@@ -744,6 +782,9 @@ app.post("/api/keywords", async (req, res) => {
 });
 
 app.delete("/api/keywords/:id", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
   const id = Number(req.params.id);
 
   if (!Number.isInteger(id) || id <= 0) {
@@ -755,7 +796,7 @@ app.delete("/api/keywords/:id", async (req, res) => {
   }
 
   try {
-    const updated = await deactivateTrackedKeyword(id);
+    const updated = await deactivateTrackedKeyword(auth.userId, id);
 
     if (!updated) {
       res.status(404).json({

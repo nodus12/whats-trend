@@ -659,10 +659,17 @@ function TrendCard({ trend, onClick, saved, onSave }) {
         </div>
       )}
 
-      <div className="next-row">
-        <span>🔮 NEXT</span>
-        <strong>{formatNextLevel(trend.nextLevel, trend.nextAvailable)}</strong>
-      </div>
+      {/* 6-6단계: nextAvailable이 false인 경우(실측상 드묾, ~5%)
+          formatNextLevel()이 "데이터 부족"을 반환합니다 - NEXT 자체는
+          API에 실제로 존재하는 필드지만(6-3단계 확인), 값이 없는 이
+          경우엔 growth/daily와 동일한 원칙으로 줄 자체를 숨깁니다.
+          값이 있을 때(nextAvailable:true)는 그대로 표시합니다. */}
+      {trend.nextAvailable && (
+        <div className="next-row">
+          <span>🔮 NEXT</span>
+          <strong>{formatNextLevel(trend.nextLevel, trend.nextAvailable)}</strong>
+        </div>
+      )}
 
       {trend.nextAvailable && trend.nextScore !== null && trend.nextScore !== undefined && (
         <div className="next-score-row">

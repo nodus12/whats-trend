@@ -631,19 +631,33 @@ function TrendCard({ trend, onClick, saved, onSave }) {
 
       <h3>{trend.title}</h3>
 
-      <p>{trend.description}</p>
+      {/* 6-5단계: description/daily는 실API에 없는 필드라(항상 null/빈
+          문자열) "데이터 없음" 대신 줄 자체를 숨깁니다 - 6-3단계에서
+          DetailPage에 적용한 것과 동일한 판단 기준입니다. .explore-stats는
+          flex 레이아웃이라 항목 하나를 안 그려도 빈 칸이 남지 않습니다. */}
+      {trend.description && <p>{trend.description}</p>}
 
-      <div className="explore-stats">
-        <div>
-          <span>관심도</span>
-          <strong>{formatGrowth(trend.growth)}</strong>
-        </div>
+      {/* growthAvailable이 false인 경우(실측상 약 5%) trend.growth가
+          null이라 formatGrowth()가 "데이터 없음"을 반환합니다 - 이 역시
+          같은 원칙으로 숨깁니다. growth/daily가 둘 다 없으면 빈 박스가
+          남지 않도록 바깥 wrapper 자체도 조건부로 렌더링합니다. */}
+      {(trend.growth !== null && trend.growth !== undefined || trend.daily) && (
+        <div className="explore-stats">
+          {trend.growth !== null && trend.growth !== undefined && (
+            <div>
+              <span>관심도</span>
+              <strong>{formatGrowth(trend.growth)}</strong>
+            </div>
+          )}
 
-        <div>
-          <span>오늘 상승</span>
-          <strong>{formatTrendValue(trend.daily)}</strong>
+          {trend.daily && (
+            <div>
+              <span>오늘 상승</span>
+              <strong>{trend.daily}</strong>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       <div className="next-row">
         <span>🔮 NEXT</span>
@@ -1100,15 +1114,19 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
                   {trend.description && <p>{trend.description}</p>}
 
-                  <div className="home-growth">
-                    <strong>{formatGrowth(trend.growth)}</strong>
+                  {(trend.growth !== null && trend.growth !== undefined || trend.daily) && (
+                    <div className="home-growth">
+                      {trend.growth !== null && trend.growth !== undefined && (
+                        <strong>{formatGrowth(trend.growth)}</strong>
+                      )}
 
-                    {trend.daily && (
-                      <span>
-                        오늘 {trend.daily}
-                      </span>
-                    )}
-                  </div>
+                      {trend.daily && (
+                        <span>
+                          오늘 {trend.daily}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="home-hot-emoji">
@@ -1164,15 +1182,19 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
                 {trend.description && <p>{trend.description}</p>}
 
-                <div className="rising-bottom">
-                  <strong>{formatGrowth(trend.growth)}</strong>
+                {(trend.growth !== null && trend.growth !== undefined || trend.daily) && (
+                  <div className="rising-bottom">
+                    {trend.growth !== null && trend.growth !== undefined && (
+                      <strong>{formatGrowth(trend.growth)}</strong>
+                    )}
 
-                  {trend.daily && (
-                    <span>
-                      {trend.daily}
-                    </span>
-                  )}
-                </div>
+                    {trend.daily && (
+                      <span>
+                        {trend.daily}
+                      </span>
+                    )}
+                  </div>
+                )}
               </article>
             ))
           )}
@@ -1230,15 +1252,19 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
                 {trend.description && <p>{trend.description}</p>}
 
-                <div className="rising-bottom">
-                  <strong>{formatGrowth(trend.growth)}</strong>
+                {(trend.growth !== null && trend.growth !== undefined || trend.daily) && (
+                  <div className="rising-bottom">
+                    {trend.growth !== null && trend.growth !== undefined && (
+                      <strong>{formatGrowth(trend.growth)}</strong>
+                    )}
 
-                  {trend.daily && (
-                    <span>
-                      {trend.daily}
-                    </span>
-                  )}
-                </div>
+                    {trend.daily && (
+                      <span>
+                        {trend.daily}
+                      </span>
+                    )}
+                  </div>
+                )}
               </article>
             ))
           )}

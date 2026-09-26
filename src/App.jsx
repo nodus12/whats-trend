@@ -563,6 +563,43 @@ function formatNextLevel(nextLevel, nextAvailable) {
   return nextLevel;
 }
 
+// 6-4단계: DetailPage의 "TREND STAGE" 진행바가 실제 trend.stage 값에
+// 따라 활성 단계를 찾을 때 쓰는 순서/문구입니다. 의미는 CLAUDE.md
+// 22번 섹션에 정의된 5단계를 그대로 따르고, 아이콘은 기존 UI에서
+// 쓰던 것(🌱/📈/🔥/💤/📉)을 그대로 유지합니다.
+const STAGE_DEFINITIONS = [
+  {
+    label: "초기 발견",
+    emoji: "🌱",
+    headline: "이제 막 신호가 등장하기 시작했어요.",
+    message: "아직 관심이 크지 않지만, 새로운 신호가 처음 감지된 단계예요.",
+  },
+  {
+    label: "상승 중",
+    emoji: "📈",
+    headline: "지금이 가장 중요한 구간이에요.",
+    message: "대중적으로 크게 퍼지기 전에 상승 신호가 빠르게 나타나고 있어요.",
+  },
+  {
+    label: "폭발 직전",
+    emoji: "🔥",
+    headline: "빠르게 확산될 가능성이 나타나고 있어요.",
+    message: "다만 실제 폭발적 확산을 보장하는 것은 아니에요.",
+  },
+  {
+    label: "지속",
+    emoji: "💤",
+    headline: "높은 관심이 꾸준히 유지되고 있어요.",
+    message: "일정한 수준의 관심이 계속 이어지고 있는 상태예요.",
+  },
+  {
+    label: "하락",
+    emoji: "📉",
+    headline: "관심이 줄어들고 있어요.",
+    message: "이전보다 언급량/관심도가 감소하는 추세예요.",
+  },
+];
+
 function formatNextScore(nextScore, nextAvailable) {
   if (!nextAvailable || nextScore === null || nextScore === undefined) {
     return null;
@@ -2410,6 +2447,11 @@ function DetailPage({
   isPro,
   onOpenPro,
 }) {
+  const activeStageIndex = Math.max(
+    0,
+    STAGE_DEFINITIONS.findIndex((s) => s.label === trend.stage)
+  );
+
   return (
     <div className="content detail-page">
       {/* HEADER */}
@@ -2465,20 +2507,32 @@ function DetailPage({
 
         <h1>{trend.title}</h1>
 
-        <p className="detail-description">
-          {formatTrendValue(trend.description)}
-        </p>
+        {trend.description && (
+          <p className="detail-description">
+            {trend.description}
+          </p>
+        )}
 
-        <div className="detail-growth-row">
+        {/* 6-4단계: 일일 상승(daily)은 실API가 아예 제공하지 않는 필드라
+            (normalizeApiTrend가 항상 null) "데이터 없음" 대신 칸 자체를
+            숨깁니다. 3칸 그리드에서 가운데 칸만 없어지면 빈 자리가
+            남으므로, 남은 칸 개수에 맞춰 grid-template-columns를
+            동적으로 바꿉니다. */}
+        <div
+          className="detail-growth-row"
+          style={{ gridTemplateColumns: `repeat(${trend.daily ? 3 : 2}, 1fr)` }}
+        >
           <div>
             <span>관심도 상승</span>
             <strong>{formatGrowth(trend.growth)}</strong>
           </div>
 
-          <div>
-            <span>일일 상승</span>
-            <strong>{formatTrendValue(trend.daily)}</strong>
-          </div>
+          {trend.daily && (
+            <div>
+              <span>일일 상승</span>
+              <strong>{trend.daily}</strong>
+            </div>
+          )}
 
           <div>
             <span>🔮 NEXT</span>
@@ -2507,38 +2561,15 @@ function DetailPage({
           <span className="graph-period">최근 7일</span>
         </div>
 
+        {/* 6-4단계: 7일 시계열 데이터를 실제로 제공할 수 없는 상태라서
+            (trendHistory.js가 이 트렌드를 위해 쌓아둔 데이터가 있다는
+            보장이 없음) 하드코딩된 가짜 그래프 대신 안내 문구로
+            대체합니다 - 실제 차트 구현은 별도 후속 과제입니다. */}
         {isPro ? (
-          <div className="detail-pro-chart">
-            <div className="detail-chart-label">
-              최근 7일 관심도 변화
-            </div>
-
-            <svg
-              viewBox="0 0 360 150"
-              preserveAspectRatio="none"
-            >
-              <polyline
-                points="0,125 55,115 110,105 165,88 220,78 275,55 360,28"
-                fill="none"
-                stroke="url(#trendGradient)"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-
-              <defs>
-                <linearGradient id="trendGradient" x1="0" x2="1">
-                  <stop offset="0%" stopColor="#ff7a18" />
-                  <stop offset="50%" stopColor="#ff2d8d" />
-                  <stop offset="100%" stopColor="#8b5cf6" />
-                </linearGradient>
-              </defs>
-            </svg>
-
-            <div className="detail-chart-dates">
-              <span>7일 전</span>
-              <span>오늘</span>
-            </div>
+          <div className="monitoring-empty">
+            아직 이 트렌드의 히스토리 데이터가 충분히 쌓이지 않았어요.
+            <br />
+            그래프는 데이터가 모이면 표시됩니다.
           </div>
         ) : (
           <div className="detail-pro-lock">
@@ -2568,20 +2599,32 @@ function DetailPage({
           </div>
         </div>
 
-        <div className="signal-grid">
-          <div className="signal-card">
-            <div className="signal-icon">↗</div>
-            <span>상승 속도</span>
-            <strong>{formatTrendValue(trend.daily)}</strong>
-            <small>하루 평균 증가</small>
-          </div>
+        {/* 6-4단계: daily/interest/startDate는 실API에 없는 필드라
+            (normalizeApiTrend가 항상 null/빈 값) "데이터 없음" 대신
+            카드 자체를 숨기고, NEXT 가능성만 항상 표시합니다. 남은
+            카드 개수에 맞춰 grid-template-columns도 같이 바꿔서
+            빈 칸이 남지 않게 합니다. */}
+        <div
+          className="signal-grid"
+          style={{ gridTemplateColumns: `repeat(${1 + [trend.daily, trend.interest, trend.startDate].filter(Boolean).length}, 1fr)` }}
+        >
+          {trend.daily && (
+            <div className="signal-card">
+              <div className="signal-icon">↗</div>
+              <span>상승 속도</span>
+              <strong>{trend.daily}</strong>
+              <small>하루 평균 증가</small>
+            </div>
+          )}
 
-          <div className="signal-card">
-            <div className="signal-icon">👀</div>
-            <span>현재 관심도</span>
-            <strong>{formatTrendValue(trend.interest)}</strong>
-            <small>100점 기준</small>
-          </div>
+          {trend.interest !== null && trend.interest !== undefined && (
+            <div className="signal-card">
+              <div className="signal-icon">👀</div>
+              <span>현재 관심도</span>
+              <strong>{trend.interest}</strong>
+              <small>100점 기준</small>
+            </div>
+          )}
 
           <div className="signal-card">
             <div className="signal-icon">🔮</div>
@@ -2590,12 +2633,14 @@ function DetailPage({
             <small>미래 확산 예측</small>
           </div>
 
-          <div className="signal-card">
-            <div className="signal-icon">📅</div>
-            <span>발견 시작</span>
-            <strong>{formatTrendValue(trend.startDate)}</strong>
-            <small>상승 신호 포착</small>
-          </div>
+          {trend.startDate && (
+            <div className="signal-card">
+              <div className="signal-icon">📅</div>
+              <span>발견 시작</span>
+              <strong>{trend.startDate}</strong>
+              <small>상승 신호 포착</small>
+            </div>
+          )}
         </div>
       </section>
 
@@ -2610,42 +2655,27 @@ function DetailPage({
 
         <div className="stage-card">
           <div className="stage-line">
-            <div className="stage-progress" />
+            <div
+              className="stage-progress"
+              style={{ width: `${((activeStageIndex + 1) / STAGE_DEFINITIONS.length) * 100}%` }}
+            />
           </div>
 
           <div className="stage-items">
-            <div className="stage-item">
-              <span>🌱</span>
-              <small>초기 발견</small>
-            </div>
-
-            <div className="stage-item active">
-              <span>📈</span>
-              <small>상승 중</small>
-            </div>
-
-            <div className="stage-item">
-              <span>🔥</span>
-              <small>폭발 직전</small>
-            </div>
-
-            <div className="stage-item">
-              <span>💤</span>
-              <small>지속</small>
-            </div>
-
-            <div className="stage-item">
-              <span>📉</span>
-              <small>하락</small>
-            </div>
+            {STAGE_DEFINITIONS.map((s, index) => (
+              <div
+                className={`stage-item${index === activeStageIndex ? " active" : ""}`}
+                key={s.label}
+              >
+                <span>{s.emoji}</span>
+                <small>{s.label}</small>
+              </div>
+            ))}
           </div>
 
           <div className="stage-message">
-            <strong>지금이 가장 중요한 구간이에요.</strong>
-            <span>
-              대중적으로 크게 퍼지기 전에 상승 신호가
-              빠르게 나타나고 있어요.
-            </span>
+            <strong>{STAGE_DEFINITIONS[activeStageIndex].headline}</strong>
+            <span>{STAGE_DEFINITIONS[activeStageIndex].message}</span>
           </div>
         </div>
       </section>
@@ -2802,36 +2832,18 @@ function DetailPage({
           </div>
         </div>
 
-        <div className="platform-flow-card">
-          <div className="platform-item">
-            <div className="platform-icon">◎</div>
-            <span>Instagram</span>
-          </div>
-
-          <div className="platform-arrow">→</div>
-
-          <div className="platform-item">
-            <div className="platform-icon">♪</div>
-            <span>TikTok</span>
-          </div>
-
-          <div className="platform-arrow">→</div>
-
-          <div className="platform-item">
-            <div className="platform-icon">▶</div>
-            <span>Shorts</span>
-          </div>
-
-          <div className="platform-arrow">→</div>
-
-          <div className="platform-item">
-            <div className="platform-icon">#</div>
-            <span>Threads</span>
-          </div>
+        {/* 6-4단계: platforms 데이터를 제공하는 소스가 없어서(실API에
+            아예 없는 필드) Instagram/TikTok/Shorts/Threads 고정 흐름을
+            실제 데이터처럼 보여주지 않고 안내 문구로 대체합니다. */}
+        <div className="monitoring-empty">
+          아직 채널별 확산 데이터가 없어요.
         </div>
       </section>
 
-      {/* HASHTAGS */}
+      {/* HASHTAGS - 6-4단계: hashtags를 제공하는 소스가 없어서 항상
+          비어있으므로, 빈 섹션 헤더만 남는 것을 막기 위해 값이 있을
+          때만 섹션 자체를 렌더링합니다. */}
+      {trend.hashtags && trend.hashtags.length > 0 && (
       <section className="detail-section">
         <div className="detail-section-title">
           <div>
@@ -2841,13 +2853,14 @@ function DetailPage({
         </div>
 
         <div className="hashtag-list">
-          {trend.hashtags?.map((tag) => (
+          {trend.hashtags.map((tag) => (
             <span className="hashtag" key={tag}>
               #{tag}
             </span>
           ))}
         </div>
       </section>
+      )}
 
       {trend.articles?.length > 0 && (
         <section className="detail-section detail-articles-section">

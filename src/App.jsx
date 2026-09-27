@@ -226,7 +226,9 @@ function formatTrendValue(value) {
 // 이미 계산된 숫자를 화면에 0에서부터 올라가는 것처럼 보여주기만
 // 합니다. prefers-reduced-motion이면 애니메이션 없이 즉시 최종값을
 // 보여줍니다.
-function useCountUp(target, durationMs = 600) {
+// 7-1단계: 기존 600ms는 짧게 느껴질 수 있어(디자인 강도 상향 지시서
+// 항목 5) 900ms로 늘려서 "올라가는 게" 확실히 보이게 함.
+function useCountUp(target, durationMs = 900) {
   const [display, setDisplay] = useState(target);
 
   useEffect(() => {

@@ -20,19 +20,25 @@
   --neon-mint: #34d399; /* 기존 .new-signal-badge와 통일 */
   --neon-gradient: linear-gradient(135deg, var(--neon-pink), var(--neon-purple), var(--neon-cyan));
 
-  /* 글래스 표면 */
-  --glass-bg: rgba(255, 255, 255, 0.06);
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --glass-blur: blur(16px);
+  /* 글래스 표면 - 7-1단계: 7-0단계 배포 진단 결과 효과가 너무 미묘해서
+     안 보인다는 게 확인되어 강도를 대폭 올림 */
+  --glass-bg: rgba(255, 255, 255, 0.14);
+  --glass-border: rgba(255, 255, 255, 0.25);
+  --glass-blur: blur(24px);
 
   /* 글로우 효과 */
   --glow-pink: 0 0 24px rgba(236, 72, 153, 0.35);
   --glow-purple: 0 0 24px rgba(168, 85, 247, 0.35);
+  /* 7-1단계: neon-border 상시 노출용(hover 전) 약한 글로우 */
+  --glow-pink-weak: 0 0 10px rgba(236, 72, 153, 0.18);
+  --glow-purple-weak: 0 0 10px rgba(168, 85, 247, 0.18);
 
   /* 애니메이션 타이밍 */
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 150ms;
   --duration-base: 300ms;
+  /* 7-1단계: 카드 진입 애니메이션은 더 천천히, 뚜렷하게 */
+  --duration-entrance: 500ms;
 }
 
 /* =========================
@@ -47,6 +53,8 @@
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
+  /* 7-1단계: 카드가 배경에서 "떠 있는" 느낌을 주는 그림자 */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 /* 그라데이션 테두리: border-image는 border-radius와 충돌하는 브라우저가
@@ -62,8 +70,13 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1px;
+  /* 7-1단계: 테두리 두께 1px -> 2px */
+  padding: 2px;
   background: var(--neon-gradient);
+  /* 7-1단계: 그라데이션이 천천히 움직이는 "살아있는" 느낌 - 배경을
+     크게 잡고 위치만 애니메이션합니다 */
+  background-size: 300% 300%;
+  animation: neonGradientMove 5s ease-in-out infinite;
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
@@ -74,6 +87,8 @@
   mask-composite: exclude;
   pointer-events: none;
   z-index: 1;
+  /* 7-1단계: 평소에도 약하게 발광, hover 시 강하게(2단계) */
+  filter: drop-shadow(var(--glow-pink-weak)) drop-shadow(var(--glow-purple-weak));
   transition: filter var(--duration-base) var(--ease-smooth);
 }
 
@@ -81,19 +96,27 @@
   filter: drop-shadow(var(--glow-pink)) drop-shadow(var(--glow-purple));
 }
 
+@keyframes neonGradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* 7-1단계: 이동거리/지속시간 확대 + scale을 더해 "쑥 올라오며 커지는"
+   느낌을 강화 */
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(24px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 .fade-in-up {
-  animation: fadeInUp var(--duration-base) var(--ease-smooth) both;
+  animation: fadeInUp var(--duration-entrance) var(--ease-smooth) both;
 }
 
 /* 리스트 항목이 순차적으로 나타나는 계단식 딜레이 - 6개까지만 딜레이,
@@ -149,6 +172,9 @@
 
   .neon-border::before {
     transition: none;
+    /* 7-1단계: 새로 추가한 상시 그라데이션 이동 애니메이션도 억제 */
+    animation: none !important;
+    background-position: 0% 50%;
   }
 }
 
@@ -1597,9 +1623,17 @@ html {
 body {
   margin: 0;
   min-width: 320px;
+  /* 7-1단계: 완전한 순검정 배경에서는 .glass-card의 블러가 아무것도
+     블러링할 게 없어서 효과가 죽어버렸습니다(7-0단계 진단에서 확인된
+     핵심 원인) - 은은하게 고정된 그라데이션 광원을 깔아서 글래스
+     카드가 실제로 "무언가를 블러링하고 있다"는 걸 체감시킵니다.
+     스크롤해도 고정(background-attachment: fixed)되도록 해서 카드가
+     스크롤될 때 배경과의 블러 관계가 계속 느껴지게 합니다. */
   background:
-    radial-gradient(circle at 80% 0%, rgba(111, 51, 150, 0.08), transparent 30%),
+    radial-gradient(circle at 20% 10%, rgba(236, 72, 153, 0.08), transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(34, 211, 238, 0.08), transparent 40%),
     #080808;
+  background-attachment: fixed;
 }
 
 button,

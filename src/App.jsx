@@ -221,6 +221,47 @@ function formatTrendValue(value) {
     : value;
 }
 
+// 7-0단계: 모니터링 대시보드 종합점수에 쓰는 카운트업 애니메이션 훅.
+// 순수 표시용이라 계산 로직(scoreData 자체)은 전혀 안 건드립니다 -
+// 이미 계산된 숫자를 화면에 0에서부터 올라가는 것처럼 보여주기만
+// 합니다. prefers-reduced-motion이면 애니메이션 없이 즉시 최종값을
+// 보여줍니다.
+function useCountUp(target, durationMs = 600) {
+  const [display, setDisplay] = useState(target);
+
+  useEffect(() => {
+    if (typeof target !== "number" || Number.isNaN(target)) {
+      setDisplay(target);
+      return;
+    }
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
+      setDisplay(target);
+      return;
+    }
+
+    let rafId;
+    const start = performance.now();
+
+    function tick(now) {
+      const progress = Math.min((now - start) / durationMs, 1);
+      setDisplay(Math.round(target * progress * 10) / 10);
+      if (progress < 1) {
+        rafId = requestAnimationFrame(tick);
+      }
+    }
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [target, durationMs]);
+
+  return display;
+}
+
 function normalizeApiTrend(apiTrend, query) {
   const keyword =
     typeof apiTrend?.keyword === "string" && apiTrend.keyword.trim()
@@ -624,7 +665,7 @@ function formatNextScore(nextScore, nextAvailable) {
 
 function TrendCard({ trend, onClick, saved, onSave }) {
   return (
-    <article className="explore-trend-card" onClick={onClick}>
+    <article className="explore-trend-card glass-card fade-in-up stagger-item" onClick={onClick}>
       <div className="explore-card-top">
         <div className="explore-emoji">{trend.emoji}</div>
 
@@ -1054,7 +1095,7 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
           <div className="home-personalized-list">
             {personalizedTrends.map((trend) => (
               <article
-                className="home-personalized-card"
+                className="home-personalized-card glass-card fade-in-up stagger-item"
                 key={trend.id}
                 onClick={() => onSelectTrend(trend)}
               >
@@ -1112,13 +1153,13 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
             않는 친화적 빈 상태 문구를 보여줍니다(.monitoring-empty 재사용). */}
         <div className="home-hot-list">
           {homeFeedLoading ? (
-            <div className="monitoring-empty">불러오는 중...</div>
+            <div className="monitoring-empty skeleton-shimmer">불러오는 중...</div>
           ) : hotTrends.length === 0 ? (
             <div className="monitoring-empty">아직 표시할 트렌드가 없어요.</div>
           ) : (
             hotTrends.map((trend, index) => (
               <article
-                className={`home-hot-card ${
+                className={`home-hot-card glass-card fade-in-up stagger-item ${
                   index === 0 ? "featured" : ""
                 }`}
                 key={trend.id}
@@ -1189,13 +1230,13 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
         <div className="home-rising-grid">
           {homeFeedLoading ? (
-            <div className="monitoring-empty">불러오는 중...</div>
+            <div className="monitoring-empty skeleton-shimmer">불러오는 중...</div>
           ) : risingTrends.length === 0 ? (
             <div className="monitoring-empty">아직 표시할 트렌드가 없어요.</div>
           ) : (
             risingTrends.map((trend) => (
               <article
-                className="home-rising-card"
+                className="home-rising-card glass-card fade-in-up stagger-item"
                 key={trend.id}
                 onClick={() => onSelectTrend(trend)}
               >
@@ -1261,13 +1302,13 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
         <div className="home-rising-grid">
           {homeFeedLoading ? (
-            <div className="monitoring-empty">불러오는 중...</div>
+            <div className="monitoring-empty skeleton-shimmer">불러오는 중...</div>
           ) : nextTrends.length === 0 ? (
             <div className="monitoring-empty">아직 표시할 트렌드가 없어요.</div>
           ) : (
             nextTrends.map((trend) => (
               <article
-                className="home-rising-card"
+                className="home-rising-card glass-card fade-in-up stagger-item"
                 key={trend.id}
                 onClick={() => onSelectTrend(trend)}
               >
@@ -2289,7 +2330,7 @@ function ProPage({ onClose, onStartPayment, isPro, paymentStarting }) {
 
         <section className="pro-price-section">
           <div
-            className={`pro-plan-card${selectedPlan === "monthly" ? " selected" : ""}`}
+            className={`pro-plan-card neon-border${selectedPlan === "monthly" ? " selected" : ""}`}
             onClick={() => setSelectedPlan("monthly")}
           >
             <div className="pro-plan-top">
@@ -2305,7 +2346,7 @@ function ProPage({ onClose, onStartPayment, isPro, paymentStarting }) {
           </div>
 
           <div
-            className={`pro-plan-card recommended${selectedPlan === "yearly" ? " selected" : ""}`}
+            className={`pro-plan-card recommended neon-border${selectedPlan === "yearly" ? " selected" : ""}`}
             onClick={() => setSelectedPlan("yearly")}
           >
             <div className="pro-recommended">
@@ -2747,7 +2788,7 @@ function DetailPage({
         </div>
 
         {trend.aiAnalysis && trend.aiAnalysis.available === true && trend.aiAnalysis.status === "completed" ? (
-          <div className="detail-ai-card">
+          <div className="detail-ai-card neon-border">
             {/* Summary */}
             {trend.aiAnalysis.summary && (
               <div className="ai-summary">
@@ -3110,7 +3151,7 @@ const EXPLANATION_PLACEHOLDER = "아직 설명이 준비되지 않았어요";
 function SourceScoreCard({ label, source }) {
   if (!source || !source.available) {
     return (
-      <div className="source-score-card unavailable">
+      <div className="source-score-card unavailable glass-card fade-in-up">
         <span className="source-score-label">{label}</span>
         <p className="source-score-reason">{formatSourceReason(source?.reason)}</p>
         <span className="dq-badge dq-insufficient_data">데이터 없음</span>
@@ -3121,7 +3162,7 @@ function SourceScoreCard({ label, source }) {
   const { value, dataQuality } = source.trendScore || {};
 
   return (
-    <div className="source-score-card">
+    <div className="source-score-card glass-card fade-in-up">
       <span className="source-score-label">{label}</span>
       <strong className="source-score-value">
         {value === null || value === undefined ? "-" : `${value > 0 ? "+" : ""}${value}`}
@@ -3189,6 +3230,12 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
     composite: [],
   });
   const [historiesLoading, setHistoriesLoading] = useState(false);
+
+  // 7-0단계: 종합 점수 카운트업 - scoreData 계산 로직은 그대로, 화면
+  // 표시값만 0에서부터 올라가듯 보여줍니다.
+  const compositeScoreValue =
+    typeof scoreData?.compositeScore?.value === "number" ? scoreData.compositeScore.value : null;
+  const animatedCompositeScore = useCountUp(compositeScoreValue);
 
   const activeKeywords = useMemo(
     () => keywords.filter((k) => k.is_active),
@@ -3423,7 +3470,7 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
         )}
 
         {keywordsLoading ? (
-          <div className="monitoring-empty">키워드 목록을 불러오는 중...</div>
+          <div className="monitoring-empty skeleton-shimmer">키워드 목록을 불러오는 중...</div>
         ) : keywordsError ? (
           <div className="monitoring-empty">{keywordsError}</div>
         ) : activeKeywords.length === 0 ? (
@@ -3463,17 +3510,17 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
           </div>
 
           {scoreLoading ? (
-            <div className="monitoring-empty">종합 점수를 불러오는 중...</div>
+            <div className="monitoring-empty skeleton-shimmer">종합 점수를 불러오는 중...</div>
           ) : scoreError ? (
             <div className="monitoring-empty">{scoreError}</div>
           ) : scoreData ? (
             <>
-              <div className="composite-score-card">
+              <div className="composite-score-card glass-card fade-in-up">
                 <span>종합 점수</span>
                 <strong>
-                  {scoreData.compositeScore.value === null
+                  {compositeScoreValue === null
                     ? "-"
-                    : `${scoreData.compositeScore.value > 0 ? "+" : ""}${scoreData.compositeScore.value}`}
+                    : `${animatedCompositeScore > 0 ? "+" : ""}${animatedCompositeScore}`}
                 </strong>
                 <DataQualityBadge dataQuality={scoreData.compositeScore.dataQuality} />
                 <p className="composite-score-explanation">{scoreData.explanation?.text || EXPLANATION_PLACEHOLDER}</p>
@@ -3489,7 +3536,7 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
 
           <div className="history-chart-grid">
             {historiesLoading ? (
-              <div className="monitoring-empty">그래프 데이터를 불러오는 중...</div>
+              <div className="monitoring-empty skeleton-shimmer">그래프 데이터를 불러오는 중...</div>
             ) : (
               <>
                 <TrendHistoryChart title="YouTube 영상 수" data={histories.youtube} color="#ff5c5c" />
@@ -3559,7 +3606,7 @@ function AuthModal({ onClose }) {
 
   return (
     <div className="auth-modal-overlay" onClick={onClose}>
-      <div className="auth-modal" onClick={(event) => event.stopPropagation()}>
+      <div className="auth-modal modal-pop-in" onClick={(event) => event.stopPropagation()}>
         <button className="auth-modal-close" onClick={onClose} aria-label="닫기">
           ×
         </button>
@@ -3598,14 +3645,14 @@ function AuthModal({ onClose }) {
         <div className="auth-modal-oauth">
           <button
             type="button"
-            className="auth-oauth-button auth-oauth-google"
+            className="auth-oauth-button auth-oauth-google press-scale"
             onClick={() => handleOAuthLogin("google")}
           >
             Google로 계속하기
           </button>
           <button
             type="button"
-            className="auth-oauth-button auth-oauth-kakao"
+            className="auth-oauth-button auth-oauth-kakao press-scale"
             onClick={() => handleOAuthLogin("kakao")}
           >
             카카오로 계속하기
@@ -3633,7 +3680,7 @@ function AuthModal({ onClose }) {
 function BillingStatusOverlay({ status, message, onClose }) {
   return (
     <div className="auth-modal-overlay" onClick={status === "processing" ? undefined : onClose}>
-      <div className="auth-modal" onClick={(event) => event.stopPropagation()}>
+      <div className="auth-modal modal-pop-in" onClick={(event) => event.stopPropagation()}>
         {status !== "processing" && (
           <button className="auth-modal-close" onClick={onClose} aria-label="닫기">
             ×

@@ -12,6 +12,144 @@
   background: #080808;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+
+  /* 7-0단계: 네온 팔레트 (기존 핑크/보라 그라데이션 확장) */
+  --neon-pink: #ec4899;
+  --neon-purple: #a855f7;
+  --neon-cyan: #22d3ee;
+  --neon-mint: #34d399; /* 기존 .new-signal-badge와 통일 */
+  --neon-gradient: linear-gradient(135deg, var(--neon-pink), var(--neon-purple), var(--neon-cyan));
+
+  /* 글래스 표면 */
+  --glass-bg: rgba(255, 255, 255, 0.06);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-blur: blur(16px);
+
+  /* 글로우 효과 */
+  --glow-pink: 0 0 24px rgba(236, 72, 153, 0.35);
+  --glow-purple: 0 0 24px rgba(168, 85, 247, 0.35);
+
+  /* 애니메이션 타이밍 */
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-base: 300ms;
+}
+
+/* =========================
+   7-0단계: 공통 유틸리티 클래스
+   기존 카드/버튼/배지에 className만 추가해서 재사용합니다 - 새 컴포넌트나
+   JSX 구조 변경 없이 순수 시각 효과만 얹는 것이 목적입니다.
+========================= */
+
+.glass-card {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+}
+
+/* 그라데이션 테두리: border-image는 border-radius와 충돌하는 브라우저가
+   있어 ::before 가상 요소로 구현합니다. 이 클래스를 쓰는 요소는
+   position:relative가 필요합니다(대부분 이미 relative임). */
+.neon-border {
+  position: relative;
+  isolation: isolate;
+}
+
+.neon-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--neon-gradient);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+  transition: filter var(--duration-base) var(--ease-smooth);
+}
+
+.neon-border:hover::before {
+  filter: drop-shadow(var(--glow-pink)) drop-shadow(var(--glow-purple));
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp var(--duration-base) var(--ease-smooth) both;
+}
+
+/* 리스트 항목이 순차적으로 나타나는 계단식 딜레이 - 6개까지만 딜레이,
+   그 이후는 전부 즉시(마지막 값으로 고정)라 리스트가 길어도 마냥
+   느려지지 않습니다. */
+.stagger-item:nth-child(1) { animation-delay: 0ms; }
+.stagger-item:nth-child(2) { animation-delay: 60ms; }
+.stagger-item:nth-child(3) { animation-delay: 120ms; }
+.stagger-item:nth-child(4) { animation-delay: 180ms; }
+.stagger-item:nth-child(5) { animation-delay: 240ms; }
+.stagger-item:nth-child(n+6) { animation-delay: 300ms; }
+
+.press-scale {
+  transition: transform var(--duration-fast) var(--ease-smooth);
+}
+
+.press-scale:active {
+  transform: scale(0.97);
+}
+
+@keyframes skeletonShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.09) 50%,
+    rgba(255, 255, 255, 0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+}
+
+/* 접근성: 모션에 민감한 사용자는 위 애니메이션류를 즉시 완료 상태로 */
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-up,
+  .stagger-item {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .skeleton-shimmer {
+    animation: none !important;
+  }
+
+  .press-scale:active {
+    transform: none;
+  }
+
+  .neon-border::before {
+    transition: none;
+  }
 }
 
 /* =========================
@@ -1206,10 +1344,35 @@
 
   box-shadow:
     0 10px 30px rgba(255, 79, 156, 0.2);
+  transition: box-shadow var(--duration-base) var(--ease-smooth),
+    transform var(--duration-fast) var(--ease-smooth);
+}
+
+/* 7-0단계: 네온 강조 - hover 시 글로우가 더 밝아짐 */
+.pro-start-button:hover,
+.pro-payment-button:hover {
+  box-shadow: var(--glow-pink), var(--glow-purple), 0 10px 30px rgba(255, 79, 156, 0.2);
+}
+
+.pro-start-button:active,
+.pro-payment-button:active {
+  transform: scale(0.97);
 }
 
 .pro-start-button svg {
   width: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pro-start-button,
+  .pro-payment-button {
+    transition: none;
+  }
+
+  .pro-start-button:active,
+  .pro-payment-button:active {
+    transform: none;
+  }
 }
 
 /* =========================
@@ -2854,7 +3017,10 @@ svg {
   background: #101010;
   font-size: 10px;
   font-weight: 700;
-  transition: 0.2s ease;
+  transition: background var(--duration-base) var(--ease-smooth),
+    color var(--duration-base) var(--ease-smooth),
+    border-color var(--duration-base) var(--ease-smooth),
+    box-shadow var(--duration-base) var(--ease-smooth);
 }
 
 .category-list button:hover {
@@ -3052,9 +3218,10 @@ svg {
   padding: 6px 10px;
   border-radius: 999px;
   background: rgba(52, 211, 153, 0.12);
-  color: #34d399;
+  color: var(--neon-mint);
   font-size: 10px;
   font-weight: 700;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.25);
 }
 
 .empty-search {
@@ -4141,6 +4308,13 @@ svg {
   width: 43%;
   height: 100%;
   background: linear-gradient(90deg, #ff9651, #ff5d9f);
+  transition: width 600ms var(--ease-smooth);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-progress {
+    transition: none;
+  }
 }
 
 .stage-progress::after {
@@ -6798,6 +6972,28 @@ svg {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 18px;
   padding: 32px 24px 24px;
+}
+
+/* 7-0단계: 모달 진입 애니메이션(scale+fade) */
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.modal-pop-in {
+  animation: modalPopIn var(--duration-base) var(--ease-smooth) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-pop-in {
+    animation: none;
+  }
 }
 
 .auth-modal h2 {

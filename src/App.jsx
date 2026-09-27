@@ -500,6 +500,18 @@ function AdPlaceholder() {
   );
 }
 
+// 6-8단계: growthAvailable/nextAvailable이 둘 다 false라서 관심도/NEXT
+// 줄이 전부 숨겨지는 카드에, 빈 정보 대신 "막 포착된 신규 신호"라는
+// 긍정적인 문구를 보여줍니다. 가짜 숫자/그래프는 만들지 않고 텍스트
+// 안내만 사용합니다(CLAUDE.md 원칙).
+function NewSignalBadge() {
+  return (
+    <div className="new-signal-badge">
+      <span>✨</span> 방금 포착된 신규 신호예요
+    </div>
+  );
+}
+
 function TrendPicks({ trend }) {
   const products = useMemo(
     () =>
@@ -676,6 +688,14 @@ function TrendCard({ trend, onClick, saved, onSave }) {
           <span>{formatNextScore(trend.nextScore, trend.nextAvailable)}</span>
         </div>
       )}
+
+      {/* 6-8단계: 관심도/NEXT가 둘 다 없는 카드(막 새로 잡힌 키워드라
+          비교할 과거 데이터가 아직 없는 경우 - 6-7단계 조사 참고)에는
+          빈 칸 대신 긍정적인 안내를 보여줍니다. 둘 중 하나만 없는
+          애매한 경우엔 배지를 넣지 않습니다(실측상 이런 경우는 없었지만
+          - growthAvailable/nextAvailable은 항상 같이 움직임 - 혹시
+          모를 상황에 대비해 조건은 그대로 둡니다). */}
+      {!trend.growthAvailable && !trend.nextAvailable && <NewSignalBadge />}
 
       {/* AI Insight Preview */}
       {trend.aiAnalysis && trend.aiAnalysis.status === "completed" && (
@@ -1121,7 +1141,7 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
                   {trend.description && <p>{trend.description}</p>}
 
-                  {(trend.growth !== null && trend.growth !== undefined || trend.daily) && (
+                  {(trend.growth !== null && trend.growth !== undefined || trend.daily) ? (
                     <div className="home-growth">
                       {trend.growth !== null && trend.growth !== undefined && (
                         <strong>{formatGrowth(trend.growth)}</strong>
@@ -1133,6 +1153,8 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
                         </span>
                       )}
                     </div>
+                  ) : (
+                    !trend.growthAvailable && !trend.nextAvailable && <NewSignalBadge />
                   )}
                 </div>
 
@@ -1189,7 +1211,7 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
                 {trend.description && <p>{trend.description}</p>}
 
-                {(trend.growth !== null && trend.growth !== undefined || trend.daily) && (
+                {(trend.growth !== null && trend.growth !== undefined || trend.daily) ? (
                   <div className="rising-bottom">
                     {trend.growth !== null && trend.growth !== undefined && (
                       <strong>{formatGrowth(trend.growth)}</strong>
@@ -1201,6 +1223,8 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
                       </span>
                     )}
                   </div>
+                ) : (
+                  !trend.growthAvailable && !trend.nextAvailable && <NewSignalBadge />
                 )}
               </article>
             ))
@@ -1259,7 +1283,7 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
 
                 {trend.description && <p>{trend.description}</p>}
 
-                {(trend.growth !== null && trend.growth !== undefined || trend.daily) && (
+                {(trend.growth !== null && trend.growth !== undefined || trend.daily) ? (
                   <div className="rising-bottom">
                     {trend.growth !== null && trend.growth !== undefined && (
                       <strong>{formatGrowth(trend.growth)}</strong>
@@ -1271,6 +1295,8 @@ function HomePage({ onSelectTrend, onExplore, isPro }) {
                       </span>
                     )}
                   </div>
+                ) : (
+                  !trend.growthAvailable && !trend.nextAvailable && <NewSignalBadge />
                 )}
               </article>
             ))

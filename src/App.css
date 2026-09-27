@@ -3042,6 +3042,21 @@ svg {
   overflow: hidden;
 }
 
+/* 6-8단계: 신규 신호 배지 - AI INSIGHT 톤(작은 레이블 + 은은한 상단 구분선)을
+   참고하되, 초록/민트 계열로 "긍정적" 느낌만 다르게 줍니다. */
+.new-signal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .empty-search {
   min-height: 280px;
   display: flex;

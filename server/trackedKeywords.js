@@ -12,9 +12,23 @@
 // 스케줄러는 특정 사용자가 아니라 "지금 활성 상태인 모든 keyword 문자열"을
 // 수집해야 하므로 사용자 구분 없이 조회하되, 여러 사용자가 같은 키워드를
 // 등록해도 한 번만 수집하도록 keyword 기준으로 중복 제거해서 반환합니다.
+//
+// 8-0단계: listActiveTrackedKeywords()는 사용자 키워드 뒤에 자동 발견
+// 키워드(auto_tracked_keywords, server/autoKeywordDiscovery.js가 채움)를
+// 덧붙여서 반환합니다. 순환 참조를 피하기 위해 autoKeywordDiscovery.js의
+// 함수를 import하지 않고, 테이블을 직접 조회만 합니다. 반환 형태
+// (Array<{keyword:string}>)는 그대로 유지합니다.
 import { getSupabaseClient, isSupabaseConfigured } from "./supabase.js";
 
 export const TRACKED_KEYWORDS_TABLE = "tracked_keywords";
+const AUTO_TRACKED_KEYWORDS_TABLE = "auto_tracked_keywords";
+
+// 스케줄러 한 번 실행에서 수집할 키워드 전체 상한(사용자 키워드 우선).
+export const MAX_TOTAL_KEYWORDS_PER_RUN = 25;
+// 자동 발견 키워드 자체의 상한(auto_tracked_keywords 쪽 상한과 동일한 값 -
+// server/autoKeywordDiscovery.js의 MAX_AUTO_KEYWORDS와 별개로 여기서도
+// 방어적으로 다시 제한합니다).
+export const MAX_AUTO_KEYWORDS_PER_RUN = 10;
 
 function assertSupabaseConfigured() {
   if (!isSupabaseConfigured()) {
@@ -78,6 +92,12 @@ export async function countActiveTrackedKeywords(userId) {
  * is_active=true인 keyword를 사용자 구분 없이 중복 제거해서 반환합니다
  * (server/scheduler.js 전용 - 여러 사용자가 같은 키워드를 등록해도
  * 한 번만 수집하기 위함).
+ *
+ * 8-0단계: 사용자 키워드 뒤에 auto_tracked_keywords의 활성 키워드를
+ * 이어붙입니다. 전체 상한은 MAX_TOTAL_KEYWORDS_PER_RUN(25)이고 사용자
+ * 키워드가 우선입니다 - 사용자 키워드만으로 이미 25개 이상이면 자동
+ * 키워드는 0개가 되고 경고 로그를 남깁니다. 자동 키워드 자체는 최대
+ * MAX_AUTO_KEYWORDS_PER_RUN(10)개까지만 가져옵니다.
  * @returns {Promise<Array<{keyword:string}>>}
  */
 export async function listActiveTrackedKeywords() {
@@ -96,8 +116,37 @@ export async function listActiveTrackedKeywords() {
     throw sanitized;
   }
 
-  const uniqueKeywords = [...new Set((data ?? []).map((row) => row.keyword))];
-  return uniqueKeywords.map((keyword) => ({ keyword }));
+  const userKeywords = [...new Set((data ?? []).map((row) => row.keyword))];
+
+  const remainingSlots = Math.max(0, MAX_TOTAL_KEYWORDS_PER_RUN - userKeywords.length);
+  if (remainingSlots === 0) {
+    console.warn(
+      `[TrackedKeywords] 사용자 키워드(${userKeywords.length}개)가 전체 상한(${MAX_TOTAL_KEYWORDS_PER_RUN})에 도달/초과 - 이번 실행에서 자동 발견 키워드는 포함하지 않습니다.`
+    );
+  }
+
+  let autoKeywords = [];
+  if (remainingSlots > 0) {
+    const autoLimit = Math.min(remainingSlots, MAX_AUTO_KEYWORDS_PER_RUN);
+    const { data: autoRows, error: autoError } = await client
+      .from(AUTO_TRACKED_KEYWORDS_TABLE)
+      .select("keyword")
+      .eq("is_active", true)
+      .order("discovery_score", { ascending: false, nullsFirst: false })
+      .limit(autoLimit);
+
+    if (autoError) {
+      console.error(
+        "[TrackedKeywords] 자동 발견 키워드 조회 실패(사용자 키워드만으로 계속 진행):",
+        autoError.message
+      );
+    } else {
+      autoKeywords = (autoRows ?? []).map((row) => row.keyword);
+    }
+  }
+
+  const mergedKeywords = [...new Set([...userKeywords, ...autoKeywords])];
+  return mergedKeywords.map((keyword) => ({ keyword }));
 }
 
 /**

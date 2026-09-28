@@ -23,6 +23,17 @@ export const FIXED_INSUFFICIENT_EXPLANATION = {
 
 const VALID_LEVELS = ["strong_up", "up", "flat", "down", "strong_down"];
 
+// 9-0단계: Gemini 호출이 응답 없이 멈추면(8-0단계 실측에서 실제로 관찰됨 -
+// composite 설명 생성 단계에서 스케줄러가 무한정 멈춤) try/catch로도 잡을
+// 수 없습니다(reject/resolve 자체가 안 일어나므로). SDK(@google/genai)의
+// 실제 타입 정의(node_modules/@google/genai/dist/genai.d.ts,
+// GenerateContentConfig.httpOptions.timeout)에서 확인한 공식 지원 옵션을
+// 그대로 사용합니다 - 추측한 옵션이 아닙니다. 내부적으로 이 timeout이
+// 지나면 SDK가 자체 AbortController로 요청을 중단시키고, 그 결과 fetch가
+// DOMException(name: "AbortError")으로 reject합니다(SDK 소스
+// dist/node/index.mjs의 createAttemptSignal/apiCall에서 확인).
+const GEMINI_REQUEST_TIMEOUT_MS = 30000;
+
 /**
  * Claude/Gemini 응답 텍스트를 파싱합니다. 마크다운 코드펜스를 방어적으로
  * 제거한 뒤 JSON.parse하고, level/text 유효성을 검증합니다.
@@ -58,7 +69,14 @@ function parseExplanationResponse(rawText) {
  * @param {*} error
  * @returns {string}
  */
+function isTimeoutError(error) {
+  return error?.name === "AbortError";
+}
+
 function formatGeminiErrorMessage(error) {
+  if (isTimeoutError(error)) {
+    return `Gemini 호출 실패(타임아웃 ${GEMINI_REQUEST_TIMEOUT_MS}ms 초과)`;
+  }
   const isRateLimit = error instanceof ApiError && error.status === 429;
   const reason = isRateLimit ? "rate limit" : "기타";
   return `Gemini 호출 실패(${reason}): ${error?.message ?? "unknown_error"}`;
@@ -90,9 +108,13 @@ export async function callGeminiExplanation({ systemPrompt, userPrompt }) {
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
         responseSchema: EXPLANATION_RESPONSE_SCHEMA,
+        httpOptions: { timeout: GEMINI_REQUEST_TIMEOUT_MS },
       },
     });
   } catch (error) {
+    if (isTimeoutError(error)) {
+      console.error(`[Explanation Engine] Gemini 호출 타임아웃(${GEMINI_REQUEST_TIMEOUT_MS}ms) 발생 - explanation 없이 계속 진행`);
+    }
     return { error: formatGeminiErrorMessage(error) };
   }
 

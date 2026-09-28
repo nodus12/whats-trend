@@ -47,6 +47,7 @@ import { getCompositeTrendScore } from "./compositeTrendScore.js";
 import { listActiveTrackedKeywords } from "./trackedKeywords.js";
 import { saveCompositeSnapshot, updateCompositeSnapshotExplanation } from "./trendHistoryApi.js";
 import { generateCompositeExplanation } from "./compositeTrendExplanation.js";
+import { discoverTrendingKeywords, expireAutoKeywords } from "./autoKeywordDiscovery.js";
 
 // 4-2단계: 종합점수 일별 스냅샷. getCompositeTrendScore()는 내부적으로
 // calculateYoutubeTrendGrowth/calculateNewsTrendGrowth(Supabase 조회만,
@@ -61,6 +62,55 @@ function formatDate(date) {
 
 // 하루 3회 기준 8시간.
 export const SCHEDULED_COLLECTION_INTERVAL_MS = 8 * 60 * 60 * 1000;
+
+// 9-0단계: 키워드 하나 처리(collectAllSourcesForKeyword)에 거는 상한
+// 시간. 8-0단계 실측에서 종합점수 설명 생성(Gemini) 단계가 응답 없이
+// 멈춰서 스케줄러 전체가 멈추는 것을 실제로 관찰했습니다 - 개별 소스마다
+// try/catch가 있어도, throw 자체가 안 일어나는 hang은 잡지 못합니다.
+// 아래 createTimeoutRejection()과 Promise.race로 감싸서, 이 시간을
+// 넘기면 해당 키워드를 건너뛰고 다음 키워드로 넘어가게 합니다.
+//
+// 주의(한계): Promise.race는 "더는 기다리지 않는다"는 것이지 진행 중인
+// 내부 fetch를 실제로 취소하지는 않습니다 - 시간이 초과된 키워드의
+// 이전 요청은 백그라운드에서 계속 진행되다가 나중에 스스로 끝나거나
+// 실패합니다(그 결과는 버려짐). AbortController를 모든 소스 함수까지
+// 관통시켜 실제로 취소하는 것은 이번 작업 범위 밖입니다.
+//
+// 주의(unref를 쓰지 않는 이유 - 9-0단계 검증 [3]에서 실제로 재현/발견):
+// 처음에는 이 타이머에 timer.unref()를 걸었습니다("안전장치 타이머 자체가
+// 프로세스 종료를 막으면 안 된다"는 의도). 하지만 실제로 완전히 멈춘
+// 작업(예: new Promise(() => {})처럼 어떤 I/O 핸들도 잡지 않는 hang)과
+// Promise.race시키면, 이벤트 루프에 unref된 타이머 말고는 아무 활성
+// 핸들도 안 남아서 Node가 "할 일이 없다"고 판단해 그 타이머가 발동하기도
+// 전에 프로세스를 조용히 종료해버리는 것을 독립 스크립트로 직접
+// 재현했습니다. 이러면 안전장치가 있으나 마나 해집니다(정확히 막으려던
+// 상황에서 무력화됨). 그래서 unref를 걸지 않습니다 - 대신 아래처럼 진짜
+// 작업이 먼저 끝나면 반드시 clearTimeout으로 타이머를 정리해서, 정상
+// 케이스에서 이 타이머 때문에 다음 실행(예: 서버 종료)이 막히지 않게
+// 합니다.
+export const PER_KEYWORD_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * ms 후에 reject되는 Promise와, 그 타이머를 즉시 정리하는 cancel()을
+ * 함께 반환합니다. Promise.race에서 진짜 작업과 경쟁시켜 "상한 시간"을
+ * 구현하는 용도입니다. 진짜 작업이 먼저 끝나면 반드시 cancel()을 호출해서
+ * (finally 블록에서) 타이머가 나중에 혼자 발동해 처리되지 않는 rejection을
+ * 만들지 않게 해야 합니다.
+ * @param {number} ms
+ * @param {string} message
+ * @returns {{promise: Promise<never>, cancel: () => void}}
+ */
+function createTimeoutRejection(ms, message) {
+  let timer;
+  const promise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(message);
+      error.code = "scheduler_keyword_timeout";
+      reject(error);
+    }, ms);
+  });
+  return { promise, cancel: () => clearTimeout(timer) };
+}
 
 let isRunning = false;
 
@@ -214,12 +264,39 @@ export async function runScheduledCollection() {
   isRunning = true;
   console.log("[Scheduler] 시작");
 
+  // 8-0단계: 수집 루프 시작 직전에 "자동 발견" 단계를 끼워 넣습니다.
+  // 만료 처리/발견 둘 다 독립적인 try/catch로 감싸서, 여기서 무엇이
+  // 실패하든(Supabase 오류, 카테고리 수집 실패 등) 아래 기존 사용자
+  // 키워드 수집 루프는 항상 정상 진행됩니다. collectTrends나 기존 수집
+  // 로직 자체는 이 블록에서 전혀 수정하지 않습니다.
+  try {
+    await expireAutoKeywords();
+  } catch (error) {
+    console.error("[Scheduler] 자동 키워드 만료 처리 실패(수집은 계속 진행):", error.message);
+  }
+
+  try {
+    await discoverTrendingKeywords();
+  } catch (error) {
+    console.error("[Scheduler] 자동 키워드 발견 단계 실패(수집은 계속 진행):", error.message);
+  }
+
   try {
     const keywords = await listActiveTrackedKeywords();
     console.log(`[Scheduler] 활성 키워드 ${keywords.length}개 수집 시작`);
 
     for (const { keyword } of keywords) {
-      await collectAllSourcesForKeyword(keyword);
+      const timeout = createTimeoutRejection(
+        PER_KEYWORD_TIMEOUT_MS,
+        `"${keyword}" 처리가 상한 시간(${PER_KEYWORD_TIMEOUT_MS}ms)을 초과했습니다.`
+      );
+      try {
+        await Promise.race([collectAllSourcesForKeyword(keyword), timeout.promise]);
+      } catch (error) {
+        console.error(`[Scheduler] "${keyword}" 처리 실패(다음 키워드로 계속 진행):`, error.message);
+      } finally {
+        timeout.cancel();
+      }
     }
 
     console.log("[Scheduler] 전체 키워드 수집 완료");

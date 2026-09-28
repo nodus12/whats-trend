@@ -693,6 +693,12 @@ early signal
    - 접근 제어: 사용자가 명시적으로 등록한 키워드만 추적
          (tracked_keywords 테이블), 인증 붙이기 전까지는 임시로
          공개 접근 상태 — Phase C에서 PRO 전용으로 제한 예정
+   - 8-0단계(신규): 사용자 키워드 외에, 1번 계층(무료 발견 피드)에서
+         하루 1회 자동으로 골라낸 키워드도 이 3번 계층이 함께 수집한다.
+         자동 키워드는 tracked_keywords가 아닌 별도 테이블
+         (auto_tracked_keywords, user_id 없음)에 저장되고 14일 후 만료되며,
+         server/autoKeywordDiscovery.js가 선정 로직을 전담한다
+         (server/scheduler.js는 수집 대상 목록에 끼워 넣기만 함).
 
 세 계층은 서로의 값을 덮어쓰지 않는다.
 API 응답에서도 이 세 계층의 필드를 절대 혼합 명명하지 않는다
@@ -1404,6 +1410,10 @@ PRO:
 ✅ 키워드 모니터링 대시보드 (React, 그래프 4종, 소스별 카드,
    AI 설명 표시, 기존 Home/Explore/My와 완전 독립)
 ✅ Render 무료 배포 + 자동 배포(GitHub push 연동)
+✅ 발견 피드 키워드 자동 수집 (8-0단계: 무료 발견 피드에서 하루 1회
+   키워드 자동 선별 → auto_tracked_keywords에 저장(14일 만료) →
+   스케줄러가 사용자 키워드와 함께 YouTube/News/Naver 수집,
+   전체 상한 25개/자동 상한 10개, 사용자 키워드 우선)
 
 부분 구현/검증:
 

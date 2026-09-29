@@ -35,6 +35,7 @@ import {
   deactivateTrackedKeyword,
   countActiveTrackedKeywords,
 } from "./trackedKeywords.js";
+import { listActiveAutoKeywords } from "./autoKeywordDiscovery.js";
 import {
   runScheduledCollection,
   SCHEDULED_COLLECTION_INTERVAL_MS,
@@ -787,6 +788,26 @@ app.get("/api/keywords", async (req, res) => {
     res.status(502).json({
       success: false,
       message: "키워드 목록을 가져오지 못했습니다.",
+    });
+  }
+});
+
+// 9-1단계: "자동 발견" 탭 전용 읽기 전용 목록. 특정 사용자 소유가 아니므로
+// requireSupabaseUser()로 로그인 여부만 확인하고, userId로는 필터링하지
+// 않습니다(auto_tracked_keywords 자체에 user_id 컬럼이 없음).
+app.get("/api/auto-keywords", async (req, res) => {
+  const auth = await requireSupabaseUser(req, res);
+  if (!auth) return;
+
+  try {
+    const keywords = await listActiveAutoKeywords();
+    res.json({ success: true, keywords });
+  } catch (error) {
+    console.error("Auto keyword list request failed:", error.message);
+
+    res.status(502).json({
+      success: false,
+      message: "자동 발견 키워드 목록을 가져오지 못했습니다.",
     });
   }
 });

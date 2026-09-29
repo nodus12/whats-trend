@@ -6784,6 +6784,34 @@ svg {
   color: #ff5c5c;
 }
 
+/* 9-1단계: 내 키워드/자동 발견 탭 + 자동 발견 목록의 발견/만료 안내 문구 */
+.monitoring-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.monitoring-tabs button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.monitoring-tabs button.selected {
+  border-color: #fff;
+  background: #1e1e1e;
+  color: #fff;
+}
+
+.monitoring-auto-meta {
+  color: #888;
+  font-size: 12px;
+}
+
 /* Phase C: 로그인 유도 화면, 사용량 표시, 무료 플랜 개수 제한 배너 */
 .monitoring-login-prompt {
   padding: 32px 24px;

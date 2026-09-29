@@ -31,6 +31,7 @@ import {
   fetchKeywords,
   addKeyword,
   deleteKeyword,
+  fetchAutoKeywords,
   fetchTrendScore,
   fetchYoutubeTrendGrowth,
   fetchNewsTrendGrowth,
@@ -3208,6 +3209,26 @@ function TrendHistoryChart({ title, data, color }) {
   );
 }
 
+// 9-1단계: "자동 발견" 탭에서 discovered_at/expires_at을 "N일 전
+// 발견"/"N일 뒤 만료"로 보여주기 위한 순수 함수. 서버가 이미 계산한
+// 값을 다시 계산하는 게 아니라, 서버가 그대로 내려준 타임스탬프를
+// 화면 표시용으로만 변환합니다.
+function formatDaysAgo(isoString) {
+  if (!isoString) return "";
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "오늘 발견";
+  return `${days}일 전 발견`;
+}
+
+function formatDaysUntil(isoString) {
+  if (!isoString) return "";
+  const diffMs = new Date(isoString).getTime() - Date.now();
+  const days = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "곧 만료";
+  return `${days}일 뒤 만료`;
+}
+
 // Phase C: 키워드 모니터링은 로그인 필수 + 소유자별 격리로 바뀌어서,
 // 이 컴포넌트는 이제 App()의 session/isPro를 props로 받습니다. session이
 // 없으면(비로그인) 아래에서 대시보드 대신 로그인 유도 화면을 반환합니다.
@@ -3220,6 +3241,26 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
   const [selectedId, setSelectedId] = useState(null);
   const [limitError, setLimitError] = useState("");
   const accessToken = session?.access_token;
+
+  // 9-1단계: "내 키워드" 탭/자동 발견 탭 목록 UI 전환용.
+  const [activeTab, setActiveTab] = useState("mine");
+
+  // 9-1단계: 자동 발견 키워드 목록(읽기 전용) - keywords/selectedId(내
+  // 키워드 CRUD 전용)와는 완전히 분리된 별도 state입니다.
+  const [autoKeywords, setAutoKeywords] = useState([]);
+  const [autoKeywordsLoading, setAutoKeywordsLoading] = useState(true);
+  const [autoKeywordsError, setAutoKeywordsError] = useState("");
+
+  // 9-1단계: 상세 화면(종합 점수/그래프/AI 설명)을 실제로 트리거하는
+  // 값입니다. "내 키워드"를 클릭하면 selectedId와 함께 이 값도
+  // 갱신되고, "자동 발견"을 클릭하면 selectedId는 건드리지 않고(정확히는
+  // null로 비워서 "내 키워드" 쪽 하이라이트를 해제) 이 값만 갱신됩니다.
+  // activeSource는 문자열이 tracked_keywords와 auto_tracked_keywords에
+  // 우연히 겹치는 경우(검증 [6])에도 "지금 실제로 클릭한 쪽"만 하이라이트
+  // 되도록 구분하는 용도입니다 - activeKeyword 문자열 하나만으로는 두
+  // 목록에서 동시에 하이라이트될 수 있기 때문입니다.
+  const [activeKeyword, setActiveKeyword] = useState(null);
+  const [activeSource, setActiveSource] = useState(null); // "mine" | "auto" | null
 
   const [scoreData, setScoreData] = useState(null);
   const [scoreLoading, setScoreLoading] = useState(false);
@@ -3244,11 +3285,6 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
     [keywords]
   );
 
-  const selectedKeyword = useMemo(
-    () => keywords.find((k) => k.id === selectedId) || null,
-    [keywords, selectedId]
-  );
-
   const loadKeywords = async () => {
     if (!accessToken) return;
 
@@ -3265,9 +3301,26 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
     }
   };
 
+  const loadAutoKeywords = async () => {
+    if (!accessToken) return;
+
+    setAutoKeywordsLoading(true);
+    setAutoKeywordsError("");
+
+    try {
+      const data = await fetchAutoKeywords(accessToken);
+      setAutoKeywords(data.keywords || []);
+    } catch {
+      setAutoKeywordsError("자동 발견 키워드 목록을 불러오지 못했어요.");
+    } finally {
+      setAutoKeywordsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (accessToken) {
       loadKeywords();
+      loadAutoKeywords();
     }
   }, [accessToken]);
 
@@ -3302,6 +3355,13 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
       await deleteKeyword(id, accessToken);
       if (selectedId === id) {
         setSelectedId(null);
+        // 지금 상세 화면에 떠 있는 게 바로 이 삭제된 "내 키워드"라면
+        // 함께 정리합니다. 자동 발견 쪽이 선택돼 있었다면(activeSource
+        // === "auto") 건드리지 않습니다.
+        if (activeSource === "mine") {
+          setActiveKeyword(null);
+          setActiveSource(null);
+        }
       }
       await loadKeywords();
     } catch {
@@ -3310,14 +3370,14 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
   };
 
   useEffect(() => {
-    if (!selectedKeyword) {
+    if (!activeKeyword) {
       setScoreData(null);
       setHistories({ youtube: [], news: [], naver: [], composite: [] });
       return;
     }
 
     let cancelled = false;
-    const keyword = selectedKeyword.keyword;
+    const keyword = activeKeyword;
 
     async function loadScore() {
       setScoreLoading(true);
@@ -3407,7 +3467,7 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedKeyword, accessToken]);
+  }, [activeKeyword, accessToken]);
 
   // Phase C: 비로그인 상태면 대시보드 대신 로그인 유도 화면만 보여줍니다.
   // 기존 대시보드 레이아웃(카드/그래프)은 그대로 두고 이 컴포넌트
@@ -3448,66 +3508,123 @@ function KeywordDashboardPage({ session, isPro, onOpenPro, onRequireLogin }) {
       </section>
 
       <section className="monitoring-section">
-        <form className="monitoring-add-form" onSubmit={handleAddKeyword}>
-          <input
-            value={newKeyword}
-            onChange={(e) => setNewKeyword(e.target.value)}
-            placeholder="감시할 키워드를 입력하세요"
-            disabled={adding}
-          />
-          <button type="submit" disabled={adding || !newKeyword.trim()}>
-            {adding ? "추가 중..." : "추가"}
+        <div className="monitoring-tabs">
+          <button
+            type="button"
+            className={activeTab === "mine" ? "selected" : ""}
+            onClick={() => setActiveTab("mine")}
+          >
+            내 키워드
           </button>
-        </form>
+          <button
+            type="button"
+            className={activeTab === "auto" ? "selected" : ""}
+            onClick={() => setActiveTab("auto")}
+          >
+            자동 발견
+          </button>
+        </div>
 
-        <p className="monitoring-usage">
-          {isPro ? "PRO · 키워드 무제한" : `${activeKeywords.length}/3개 사용 중`}
-        </p>
+        {activeTab === "mine" ? (
+          <>
+            <form className="monitoring-add-form" onSubmit={handleAddKeyword}>
+              <input
+                value={newKeyword}
+                onChange={(e) => setNewKeyword(e.target.value)}
+                placeholder="감시할 키워드를 입력하세요"
+                disabled={adding}
+              />
+              <button type="submit" disabled={adding || !newKeyword.trim()}>
+                {adding ? "추가 중..." : "추가"}
+              </button>
+            </form>
 
-        {limitError && (
-          <div className="monitoring-limit-banner">
-            <p>{limitError} PRO로 업그레이드하시겠어요?</p>
-            <button onClick={onOpenPro}>PRO 보기</button>
-          </div>
-        )}
+            <p className="monitoring-usage">
+              {isPro ? "PRO · 키워드 무제한" : `${activeKeywords.length}/3개 사용 중`}
+            </p>
 
-        {keywordsLoading ? (
-          <div className="monitoring-empty skeleton-shimmer">키워드 목록을 불러오는 중...</div>
-        ) : keywordsError ? (
-          <div className="monitoring-empty">{keywordsError}</div>
-        ) : activeKeywords.length === 0 ? (
-          <div className="monitoring-empty">등록된 키워드가 없어요. 위에서 추가해보세요.</div>
+            {limitError && (
+              <div className="monitoring-limit-banner">
+                <p>{limitError} PRO로 업그레이드하시겠어요?</p>
+                <button onClick={onOpenPro}>PRO 보기</button>
+              </div>
+            )}
+
+            {keywordsLoading ? (
+              <div className="monitoring-empty skeleton-shimmer">키워드 목록을 불러오는 중...</div>
+            ) : keywordsError ? (
+              <div className="monitoring-empty">{keywordsError}</div>
+            ) : activeKeywords.length === 0 ? (
+              <div className="monitoring-empty">등록된 키워드가 없어요. 위에서 추가해보세요.</div>
+            ) : (
+              <ul className="monitoring-keyword-list">
+                {activeKeywords.map((item) => (
+                  <li
+                    key={item.id}
+                    className={activeSource === "mine" && selectedId === item.id ? "selected" : ""}
+                    onClick={() => {
+                      setSelectedId(item.id);
+                      setActiveKeyword(item.keyword);
+                      setActiveSource("mine");
+                    }}
+                  >
+                    <span>{item.keyword}</span>
+                    <button
+                      className="monitoring-delete-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteKeyword(item.id);
+                      }}
+                      aria-label={`${item.keyword} 삭제`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         ) : (
-          <ul className="monitoring-keyword-list">
-            {activeKeywords.map((item) => (
-              <li
-                key={item.id}
-                className={selectedId === item.id ? "selected" : ""}
-                onClick={() => setSelectedId(item.id)}
-              >
-                <span>{item.keyword}</span>
-                <button
-                  className="monitoring-delete-button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteKeyword(item.id);
-                  }}
-                  aria-label={`${item.keyword} 삭제`}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
+          // 9-1단계: 자동 발견 키워드는 읽기 전용입니다 - 추가/삭제 UI가
+          // 없고, 클릭하면 activeKeyword만 바뀝니다(keywords/selectedId는
+          // 절대 건드리지 않음).
+          <>
+            {autoKeywordsLoading ? (
+              <div className="monitoring-empty skeleton-shimmer">자동 발견 키워드를 불러오는 중...</div>
+            ) : autoKeywordsError ? (
+              <div className="monitoring-empty">{autoKeywordsError}</div>
+            ) : autoKeywords.length === 0 ? (
+              <div className="monitoring-empty">아직 자동으로 발견된 키워드가 없어요.</div>
+            ) : (
+              <ul className="monitoring-keyword-list">
+                {autoKeywords.map((item) => (
+                  <li
+                    key={item.keyword}
+                    className={activeSource === "auto" && activeKeyword === item.keyword ? "selected" : ""}
+                    onClick={() => {
+                      setSelectedId(null);
+                      setActiveKeyword(item.keyword);
+                      setActiveSource("auto");
+                    }}
+                  >
+                    <span>{item.keyword}</span>
+                    <span className="monitoring-auto-meta">
+                      {formatDaysAgo(item.discovered_at)} · {formatDaysUntil(item.expires_at)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </section>
 
-      {selectedKeyword && (
+      {activeKeyword && (
         <section className="monitoring-section">
           <div className="section-header">
             <div>
               <span className="section-label">CURRENT SCORE</span>
-              <h2>{selectedKeyword.keyword}</h2>
+              <h2>{activeKeyword}</h2>
             </div>
           </div>
 

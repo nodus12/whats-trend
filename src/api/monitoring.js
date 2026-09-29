@@ -45,6 +45,14 @@ export async function deleteKeyword(id, token) {
   });
 }
 
+// 9-1단계: "자동 발견" 탭 전용 읽기 전용 목록. fetchKeywords와 동일한
+// 패턴이지만 특정 사용자 소유 목록이 아니라서 추가/삭제 함수는 없습니다.
+export async function fetchAutoKeywords(token) {
+  return getJson("/api/auto-keywords", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 // Phase C-2: 이 아래 트렌드 조회 8개 엔드포인트도 로그인 필수로
 // 바뀌어서, /api/keywords와 동일한 패턴으로 token을 받아 Authorization
 // 헤더에 실어 보냅니다.

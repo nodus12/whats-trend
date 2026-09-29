@@ -167,6 +167,36 @@ async function hasRunToday(client) {
 }
 
 /**
+ * 9-1단계: 대시보드가 "자동 발견" 탭에 보여줄 목록입니다. 로그인 여부만
+ * 확인하면 누구나 볼 수 있는 읽기 전용 목록이라(자동 키워드는 특정
+ * 사용자 소유가 아님), userId로 필터링하지 않습니다. is_active=true인
+ * 것만 반환합니다(만료 처리는 expireAutoKeywords()가 이미 담당).
+ * @returns {Promise<Array<{keyword:string, discovered_at:string, expires_at:string}>>}
+ */
+export async function listActiveAutoKeywords() {
+  if (!isSupabaseConfigured()) {
+    const error = new Error("Supabase가 설정되지 않았습니다.");
+    error.code = "supabase_not_configured";
+    throw error;
+  }
+
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from(AUTO_TRACKED_KEYWORDS_TABLE)
+    .select("keyword, discovered_at, expires_at")
+    .eq("is_active", true)
+    .order("discovered_at", { ascending: false });
+
+  if (error) {
+    const sanitized = new Error(`자동 발견 키워드 조회 실패: ${error.message ?? "unknown_error"}`);
+    sanitized.code = "auto_discovery_list_failed";
+    throw sanitized;
+  }
+
+  return data ?? [];
+}
+
+/**
  * 만료된(expires_at이 지난) 자동 키워드를 is_active=false로 바꿉니다.
  * discoverTrendingKeywords()의 하루 1회 제한과 무관하게, 스케줄러가
  * 실행될 때마다(하루 3회) 매번 호출해도 안전합니다(단순 비교/업데이트).

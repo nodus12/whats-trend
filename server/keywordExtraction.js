@@ -17,7 +17,7 @@
 // Signal로 바꾼 뒤 이 파일의 함수에 전달합니다 - newsCollector/trendAggregator/
 // trendMonitor의 기존 동작은 이 단계에서 전혀 바꾸지 않았습니다(이 파일은
 // 아직 어떤 실행 경로에도 연결되지 않은 독립 계층입니다).
-import { tokenizeTitle } from "./trendAggregator.js";
+import { tokenizeTitle, isStopWord } from "./trendAggregator.js";
 
 /**
  * @typedef {Object} KeywordCandidate
@@ -46,6 +46,88 @@ export function normalizeKeyword(keyword) {
   const normalized = keyword.normalize("NFC").trim().replace(/\s+/g, " ");
 
   return normalized.length > 0 ? normalized : null;
+}
+
+// 9-2단계(Trend Detection 1차): "같은 트렌드의 표기 차이"를 하나로 묶기 위한
+// 병합 키. normalizeKeyword()(화면 표시용 최소 정규화)는 그대로 두고, 그룹핑
+// 용도로만 쓰는 별도 키를 만듭니다.
+//
+// 의도적으로 보수적입니다 - 공백/구분 기호 제거, 영문 소문자화, 아래 목록에
+// 명시한 동의 접미사만 처리합니다. 조사 제거(stripTrailingParticle)는 다시
+// 적용하지 않습니다: "경기도"→"경기"처럼 뜻이 다른 단어가 합쳐질 수 있고,
+// 뉴스에서 추출된 토큰은 이미 tokenizeTitleTokens()에서 조사가 제거되어
+// 들어오기 때문입니다. "+"와 "#"은 남깁니다("C++", "C#").
+const KEYWORD_SEPARATOR_PATTERN = /[\s\-_·•.,'"!?~:;/|()[\]{}「」『』<>]+/g;
+const KEYWORD_SUFFIX_SYNONYMS = [["팝업스토어", "팝업"]];
+
+/**
+ * 키워드 표기 차이를 흡수한 병합 키를 반환합니다.
+ * 예: "오징어게임 팝업" / "오징어 게임 팝업" / "오징어게임 팝업스토어" /
+ * "오징어게임 팝업 스토어" → 모두 "오징어게임팝업".
+ * 키가 2글자 미만이거나 기존 불용어(trendAggregator의 stopWords)면 null.
+ * @param {*} keyword
+ * @returns {string|null}
+ */
+export function toCanonicalKeywordKey(keyword) {
+  const normalized = normalizeKeyword(keyword);
+  if (!normalized) {
+    return null;
+  }
+
+  let key = normalized.toLowerCase().replace(KEYWORD_SEPARATOR_PATTERN, "");
+
+  for (const [suffix, replacement] of KEYWORD_SUFFIX_SYNONYMS) {
+    if (key.endsWith(suffix)) {
+      key = key.slice(0, -suffix.length) + replacement;
+      break;
+    }
+  }
+
+  if (key.length < 2 || isStopWord(key)) {
+    return null;
+  }
+
+  return key;
+}
+
+/**
+ * 키워드 목록을 병합 키 기준으로 묶습니다. 대표 표기(displayKeyword)는 가장
+ * 많이 등장한 표기이고, 동률이면 먼저 나온 표기입니다. 병합 키가 null인
+ * 키워드(불용어 등)는 결과에서 제외됩니다.
+ * @param {string[]} keywords
+ * @returns {Map<string, {key:string, displayKeyword:string, variants:string[]}>}
+ */
+export function groupKeywordVariants(keywords) {
+  const groups = new Map();
+
+  for (const raw of Array.isArray(keywords) ? keywords : []) {
+    const key = toCanonicalKeywordKey(raw);
+    if (!key) {
+      continue;
+    }
+
+    const display = normalizeKeyword(raw);
+    if (!groups.has(key)) {
+      groups.set(key, { key, counts: new Map() });
+    }
+    const counts = groups.get(key).counts;
+    counts.set(display, (counts.get(display) ?? 0) + 1);
+  }
+
+  const result = new Map();
+  for (const [key, { counts }] of groups) {
+    let displayKeyword = null;
+    let best = -1;
+    for (const [variant, count] of counts) {
+      if (count > best) {
+        displayKeyword = variant;
+        best = count;
+      }
+    }
+    result.set(key, { key, displayKeyword, variants: [...counts.keys()] });
+  }
+
+  return result;
 }
 
 function normalizeValue(value) {

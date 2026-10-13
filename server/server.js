@@ -42,6 +42,11 @@ import {
   isSchedulerRunning,
 } from "./scheduler.js";
 import {
+  runNewsSignalCollection,
+  getNewsCollectionIntervalMs,
+  isNewsSignalCollectionRunning,
+} from "./newsSignalCollector.js";
+import {
   getYoutubeTrendHistory,
   getNewsTrendHistory,
   getNaverTrendHistory,
@@ -1149,18 +1154,19 @@ app.post("/api/subscription/process-renewals", (req, res) => {
 // 것을 그대로 재사용합니다(복제하지 않음) - SCHEDULER_ENABLED 인터벌 경로와
 // 이 트리거 경로가 동시에 켜져 있어도 같은 isRunning 플래그를 공유하므로
 // 중복 실행되지 않습니다.
-app.post("/api/scheduler/trigger", (req, res) => {
+// 외부 크론 트리거 공통 인증. 시크릿은 x-scheduler-secret 헤더로만 받습니다
+// (URL 쿼리스트링은 보지 않음 - 접속 로그에 남을 수 있기 때문).
+// SCHEDULER_SECRET이 아예 설정되지 않은 경우와 시크릿이 틀린 경우를
+// 응답에서 절대 구분하지 않습니다(둘 다 동일한 401) - 이 엔드포인트의
+// 존재/설정 여부 자체를 외부에서 유추할 수 없게 하기 위함입니다.
+function isAuthorizedSchedulerRequest(req) {
   const providedSecret = req.headers["x-scheduler-secret"];
   const expectedSecret = process.env.SCHEDULER_SECRET;
+  return Boolean(expectedSecret) && typeof providedSecret === "string" && providedSecret === expectedSecret;
+}
 
-  // SCHEDULER_SECRET이 아예 설정되지 않은 경우와 시크릿이 틀린 경우를
-  // 응답에서 절대 구분하지 않습니다(둘 다 동일한 401) - 이 엔드포인트의
-  // 존재/설정 여부 자체를 외부에서 유추할 수 없게 하기 위함입니다.
-  if (
-    !expectedSecret ||
-    typeof providedSecret !== "string" ||
-    providedSecret !== expectedSecret
-  ) {
+app.post("/api/scheduler/trigger", (req, res) => {
+  if (!isAuthorizedSchedulerRequest(req)) {
     res.status(401).json({ success: false, message: "인증에 실패했습니다." });
     return;
   }
@@ -1179,6 +1185,31 @@ app.post("/api/scheduler/trigger", (req, res) => {
   // 안전합니다(scheduler.js의 기존 원칙 그대로).
   runScheduledCollection().catch((error) => {
     console.error("Scheduler trigger 실행 실패(응답에는 이미 영향 없음):", error.message);
+  });
+});
+
+// 9-4단계: 뉴스 → trend_signals 수집을 외부 크론(cron-job.org 등)이 매시간
+// 깨우는 경로. spin-down 환경에선 내부 setInterval(TREND_NEWS_COLLECTION_ENABLED)이
+// 멈추므로 운영에서는 이 경로를 씁니다. /api/scheduler/trigger와 같은 시크릿·같은
+// 응답 규칙(401/409/202)을 따르고, 내부 타이머와는 isRunning 플래그와
+// "직전 수집 후 주기 절반 이내면 건너뜀" 규칙(newsSignalCollector.js)으로 중복을 막습니다.
+app.post("/api/news-signals/trigger", (req, res) => {
+  if (!isAuthorizedSchedulerRequest(req)) {
+    res.status(401).json({ success: false, message: "인증에 실패했습니다." });
+    return;
+  }
+
+  if (isNewsSignalCollectionRunning()) {
+    res.status(409).json({ success: false, message: "이미 실행 중입니다." });
+    return;
+  }
+
+  const startedAt = new Date().toISOString();
+  res.status(202).json({ status: "accepted", startedAt });
+
+  // runNewsSignalCollection()은 throw하지 않고 결과만 반환합니다(실패는 내부에서 로그).
+  runNewsSignalCollection().catch((error) => {
+    console.error("News signal trigger 실행 실패(응답에는 이미 영향 없음):", error.message);
   });
 });
 
@@ -1243,5 +1274,18 @@ app.listen(port, () => {
     console.log("[Scheduler] SCHEDULER_ENABLED=true - 8시간 간격 자동 수집이 등록되었습니다.");
   } else {
     console.log("[Scheduler] SCHEDULER_ENABLED가 설정되지 않아 자동 수집이 비활성화되어 있습니다.");
+  }
+
+  // 9-3단계: 뉴스 → trend_signals 시계열 수집. SCHEDULER_ENABLED와 같은 이유로
+  // 정확히 "true"일 때만 켭니다(기본 꺼짐) - 로컬에서 서버를 띄울 때마다 운영
+  // DB에 기록되는 것을 막기 위함입니다. 주기는 TREND_NEWS_COLLECTION_INTERVAL_MINUTES
+  // (기본 60분, 최소 5분). spin-down 환경에서 setInterval을 신뢰할 수 없는 점도
+  // 위 스케줄러와 같습니다.
+  if (process.env.TREND_NEWS_COLLECTION_ENABLED === "true") {
+    const intervalMs = getNewsCollectionIntervalMs();
+    setInterval(runNewsSignalCollection, intervalMs);
+    console.log(`[News Signals] 뉴스 시계열 수집이 ${intervalMs / 60000}분 간격으로 등록되었습니다.`);
+  } else {
+    console.log("[News Signals] TREND_NEWS_COLLECTION_ENABLED가 설정되지 않아 뉴스 시계열 수집이 비활성화되어 있습니다.");
   }
 });

@@ -8,6 +8,7 @@
     "server": "node --env-file-if-exists=.env server/server.js",
     "build": "vite build",
     "lint": "oxlint",
+    "test": "node --test \"server/**/*.test.js\"",
     "preview": "vite preview"
   },
   "dependencies": {

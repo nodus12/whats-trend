@@ -62,7 +62,7 @@ export function toUtcDateString(isoTimestamp) {
  * @param {string} query
  * @returns {Promise<{articles: Array<{title:string, link:string, pubDate:string}>, rawCount: number, capped: boolean}>}
  */
-async function fetchNewsArticles(query) {
+export async function fetchNewsArticles(query) {
   const normalizedQuery = query?.trim() || "AI";
 
   const response = await axios.get(GOOGLE_NEWS_RSS_URL, {

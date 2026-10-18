@@ -1,10 +1,12 @@
 # 뉴스 → Supabase trend_signals 수집을 Render 서버 없이 직접 실행합니다.
-# 지금은 수동 실행(workflow_dispatch)만 열어 둡니다 - 예약 실행(schedule)은
-# cron-job.org 뉴스 작업을 끈 뒤 별도로 추가합니다(두 경로가 동시에 돌면
-# 같은 기사를 중복 집계할 수 있음).
+# 매시간 예약 실행 + 수동 실행. cron은 UTC 기준이며, GitHub 부하가 몰리는
+# 정각을 피해 매시 7분에 실행합니다(KST도 매시 7분). cron-job.org 뉴스 작업은
+# 꺼둔 상태여야 합니다 - 두 경로가 동시에 돌면 같은 기사를 중복 집계할 수 있음.
 name: News signals collection
 
 on:
+  schedule:
+    - cron: "7 * * * *"
   workflow_dispatch:
 
 permissions:

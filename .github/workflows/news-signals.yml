@@ -1,0 +1,36 @@
+# 뉴스 → Supabase trend_signals 수집을 Render 서버 없이 직접 실행합니다.
+# 지금은 수동 실행(workflow_dispatch)만 열어 둡니다 - 예약 실행(schedule)은
+# cron-job.org 뉴스 작업을 끈 뒤 별도로 추가합니다(두 경로가 동시에 돌면
+# 같은 기사를 중복 집계할 수 있음).
+name: News signals collection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: news-signals
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      # server/database.js가 node:sqlite를 import하므로 22.13 이상이 필요합니다.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Collect news signals
+        run: node scripts/collect-news-signals.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
